@@ -1,4 +1,4 @@
-# JARVIS AI
+﻿# JARVIS AI
 
 **Seu agente de IA pessoal para Windows** — conversa com dezenas de modelos de IA
 **gratuitos**, executa tarefas no seu PC, produz vídeos, projeta redes e monitora
@@ -23,8 +23,14 @@ sua infraestrutura. Tudo roda no seu computador; suas chaves e conversas não sa
 - 📎 **Contexto para a IA** — arraste PDFs, documentos Word/Excel/PowerPoint, planilhas e
   código para o chat; a IA usa o material na conversa inteira.
 - 🤖 **Agente** — executa de verdade: cria e edita arquivos, roda comandos, programa e testa.
-- 🎬 **Estúdio de Vídeo** — roteiro, cenas ilustradas por IA, narração com teste de voz,
-  trilha, legendas e revisão automática, exportando MP4 em vários formatos.
+- 🎬 **Estúdio de Vídeo** com 3 modelos: **Vídeos** (verticais animados no estilo dos
+  vídeos de tecnologia do TikTok: passos, notícia, dados ou analogia), **Comercial** (app
+  ou produto) e **Publicitário** (filme de campanha). Narração com teste de voz, efeitos
+  especiais, legendas e revisão automática dos quadros; som limpo, só voz e efeitos.
+- 📍 **Empresas e comércios próximos** — pergunte "quais padarias tem perto da Savassi,
+  BH" ou "empresas sem site no centro de Campinas": telefone, WhatsApp, site, horário,
+  nota de oportunidade (quem ainda não tem site primeiro) e planilha Excel. Usa os
+  dados abertos do OpenStreetMap.
 - 🌐 **Redes** — projeta topologias com diagrama editável, valida endereçamento/VLANs/laços,
   gera configurações, exporta para Containerlab/EVE-NG; calculadora IP/VLSM e
   diagnóstico real (ping, DNS, porta, traceroute) direto no chat.
@@ -65,7 +71,9 @@ e o JARVIS usa o modelo local sozinho.
 
 - "crie uma topologia de rede para uma empresa com matriz e filial"
 - "faça o vlsm de 192.168.10.0/24 para vendas 60 hosts, rh 25 e ti 12"
-- "crie um vídeo de 30 segundos sobre energia solar"
+- "crie um vídeo de 30 segundos: 5 ferramentas de IA para programadores"
+- "crie um comercial do meu app de finanças" · "filme publicitário da minha cafeteria"
+- "quais academias tem perto de Moema, São Paulo num raio de 1 km"
 - "pinga 8.8.8.8" · "o site exemplo.com caiu?"
 - arraste um PDF para o chat e pergunte sobre ele
 
@@ -73,3 +81,4 @@ e o JARVIS usa o modelo local sozinho.
 
 © Todos os direitos reservados. O download é gratuito para uso pessoal; o código-fonte
 não é distribuído. Veja [LICENCA.md](LICENCA.md).
+
