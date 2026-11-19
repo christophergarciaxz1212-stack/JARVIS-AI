@@ -1,0 +1,5 @@
+# Os executáveis vão só na aba Releases, nunca no repositório
+*.exe
+*.zip
+data/
+.env*
