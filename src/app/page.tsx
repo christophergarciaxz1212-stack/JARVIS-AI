@@ -49,6 +49,7 @@ import { usePrefs } from '@/components/settings/usePrefs'
 import { post as apiPost } from '@/components/agents/api'
 import { shouldRunAgent } from '@/lib/agents/shouldRunAgent'
 import { PERMISSION_LABELS, PERMISSION_MODES, type PermissionMode } from '@/lib/agents/permissions'
+import { helpText, parseOnOff, parsePermissionArg, parseSlash } from '@/lib/chat/slash'
 import { hidePartialMarker } from '@/lib/motion/inline'
 import { SSEParser } from '@/lib/ai/sse'
 import { shortModelName, type StreamStatus } from '@/lib/ai/status'
@@ -450,6 +451,65 @@ export default function JarvisApp() {
     if ((!input.trim() && imageAtts.length === 0) || isStreaming) return
     // Infrastructure has no button: "/infra" opens its dashboard (monitors, servers, backups)
     if (/^\/infra\s*$/i.test(input.trim())) { setInput(''); openOverlay('infra'); return }
+
+    // Comandos de barra: cada um faz algo de verdade (ver lib/chat/slash.ts).
+    // "/plan" é tratado adiante, junto com o disparo do modo agente.
+    const slash = parseSlash(input)
+    if (slash && slash.command.name !== 'plan') {
+      const entrada = input.trim()
+      setInput('')
+      const responder = (texto: string) => setMessages(prev => [...prev,
+        { id: uuidv4(), role: 'user' as const, content: entrada, createdAt: Date.now() },
+        { id: uuidv4(), role: 'assistant' as const, content: texto, createdAt: Date.now() + 1, model: 'jarvis' },
+      ])
+
+      switch (slash.command.name) {
+        case 'help':
+          responder(helpText())
+          return
+        case 'agent': {
+          const alvo = parseOnOff(slash.arg)
+          const proximo = alvo === null ? !agentMode : alvo
+          if (proximo !== agentMode) toggleAgentMode()
+          else toast.info(`O modo agente já está ${proximo ? 'ligado' : 'desligado'}`)
+          return
+        }
+        case 'model':
+          openOverlay('models')
+          return
+        case 'mode': {
+          const alvo = parsePermissionArg(slash.arg)
+          if (!alvo) {
+            responder(`Autonomia atual: **${PERMISSION_LABELS[permissionMode].name}** — ${PERMISSION_LABELS[permissionMode].hint}
+
+Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
+            return
+          }
+          if (prefs) {
+            updatePrefs({ agent: { ...prefs.agent, permissionMode: alvo } })
+              .then(() => toast.success(`${PERMISSION_LABELS[alvo].name}: ${PERMISSION_LABELS[alvo].hint}`))
+              .catch(e => toast.error((e as Error).message))
+          }
+          return
+        }
+        case 'clear':
+          newChat()
+          toast.success('Conversa nova — o contexto anterior ficou para trás')
+          return
+        default: {
+          // Comandos resolvidos no servidor (/status, /skills)
+          try {
+            const r = await apiPost<{ text: string }>('/api/slash', {
+              command: slash.command.name, projectId, sessionId: conversationId,
+            })
+            responder(r.text)
+          } catch (e) {
+            responder(`Não consegui executar \`/${slash.command.name}\`: ${(e as Error).message}`)
+          }
+          return
+        }
+      }
+    }
 
     // Com imagens anexadas o pedido segue para o /api/chat (visão/edição multimodal)
     const hasImgAtts = imageAtts.length > 0

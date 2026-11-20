@@ -2,15 +2,26 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { SLASH_COMMANDS } from '@/lib/chat/slash'
 
 interface Item { cmd: string; label: string; hint: string }
 
-const BUILTIN: Item[] = [
+const MIDIA: Item[] = [
   { cmd: 'video', label: '🎬 /video', hint: 'cria um vídeo de motion design (Estúdio Motion)' },
   { cmd: 'imagem', label: '🖼️ /imagem', hint: 'gera uma imagem grátis' },
   { cmd: 'council', label: '🏛️ /council', hint: 'vários modelos respondem; o árbitro consolida' },
   { cmd: 'self-improve', label: '🔍 /self-improve', hint: 'varredura do próprio código + 5 melhorias medidas' },
+  { cmd: 'infra', label: '🖧 /infra', hint: 'abre o painel de infraestrutura' },
 ]
+
+// Derivados do catálogo em lib/chat/slash: o menu e o despacho nunca divergem.
+const AGENTE: Item[] = SLASH_COMMANDS.map(c => ({
+  cmd: c.name,
+  label: `⌘ /${c.name}`,
+  hint: c.arg ? `${c.arg} — ${c.description}` : c.description,
+}))
+
+const BUILTIN: Item[] = [...AGENTE, ...MIDIA]
 
 const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
