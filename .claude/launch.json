@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "jarvis-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start"],
+      "port": 3001,
+      "url": "http://127.0.0.1:3001"
+    },
+    {
+      "name": "jarvis-verify-3003",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-Command", "$env:JARVIS_DIST_DIR='.next-dev'; $env:NODE_ENV='production'; npx.cmd next start -p 3003 -H 127.0.0.1"],
+      "port": 3003,
+      "url": "http://127.0.0.1:3003"
+    },
+    {
+      "name": "jarvis-dev-3002",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-p", "3002", "-H", "127.0.0.1"],
+      "port": 3002,
+      "url": "http://127.0.0.1:3002"
+    },
+    {
+      "name": "jarvis-dev-isolated-3004",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-Command", "$env:JARVIS_DIST_DIR='.next-claude'; npx.cmd next dev -p 3004 -H 127.0.0.1"],
+      "port": 3004,
+      "url": "http://127.0.0.1:3004"
+    }
+  ]
+}

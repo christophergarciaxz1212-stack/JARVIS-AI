@@ -1,0 +1,177 @@
+{
+  "label": "depois-opencode",
+  "base": "http://127.0.0.1:3100",
+  "at": "2026-11-17T01:52:19.127Z",
+  "rows": [
+    {
+      "id": "T1",
+      "prompt": "Crie o arquivo notas/hoje.txt com o texto: reunião às 15h",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 4,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 15,
+      "resposta": "## FEITO - Arquivo criado: `notas/hoje.txt` (conteúdo: \"reunião às 15h\"). ## VERIFICADO Nada verificado por ferramenta. ## PENDENTE Nenhuma pendência."
+    },
+    {
+      "id": "T2",
+      "prompt": "Liste os arquivos .js deste projeto",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 5,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 41,
+      "resposta": "## FEITO - Criação do arquivo `arquivos_js.txt` contendo a lista dos arquivos `.js` encontrados no projeto (app.js, buggy.js, test.js). ## VERIFICADO Nada verificado por ferramenta ## PENDENTE Nenhuma pendência Get-ChildItem -Path . -Filter *.js -Recurse | Select-Object -ExpandProperty FullName → có"
+    },
+    {
+      "id": "T3",
+      "prompt": "Qual a versão do Node instalada neste computador?",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 4,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 8,
+      "resposta": "## FEITO - Executado o comando `node -v` para consultar a versão do Node.js, retornando `v26.13.1`. ## VERIFICADO - A saída do comando `node -v` foi observada e confirmou a versão `v26.13.1`. ## PENDENTE - Nenhuma pendência v26.13.1 node -v → código de saída 0"
+    },
+    {
+      "id": "T4",
+      "prompt": "Corrija o erro de sintaxe em buggy.js e rode node buggy.js para provar que funciona",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 5,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 18,
+      "resposta": "## FEITO - Correção da sintaxe do arquivo `buggy.js` (adição do fechamento da função). - Execução do comando `node buggy.js`. ## VERIFICADO - O arquivo `buggy.js` foi lido e corrigido. - A execução do comando `node buggy.js` foi validada com sucesso pelo Engenheiro Full-stack. ## PENDENTE Nenhuma pe"
+    },
+    {
+      "id": "T5",
+      "prompt": "Crie fib.py que imprime os 10 primeiros números de Fibonacci e execute-o",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 4,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 24,
+      "resposta": "## FEITO - Criação do arquivo `fib.py` com a implementação da lógica para gerar e imprimir os 10 primeiros números da sequência de Fibonacci. - Execução do script `fib.py`. ## VERIFICADO - A execução do arquivo `fib.py` foi validada e a saída dos 10 primeiros números da sequência foi conferida como "
+    },
+    {
+      "id": "T6",
+      "prompt": "Quantas linhas tem o arquivo dados.csv?",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 11,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 109,
+      "resposta": "## FEITO - Contagem de linhas do arquivo `dados.csv` realizada (arquivo `contar.ps1` criado, +7/-0). ## VERIFICADO - O arquivo `dados.csv` possui **9 linhas**, conforme resultado da contagem. ## PENDENTE Nenhuma pendência. 8 powershell -Command \"(Get-Content -Path 'dados.csv' | Measure-Object -Line)"
+    },
+    {
+      "id": "T7",
+      "prompt": "Rode os testes do projeto com npm test e diga o resultado",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 3,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 15,
+      "resposta": "## FEITO * Execução do comando `npm test`. ## VERIFICADO * Saída do comando `npm test`: \"1 teste passou\". ## PENDENTE Nenhuma pendência. > bateria@1.0.0 test > node test.js npm test → código de saída 0"
+    },
+    {
+      "id": "T8",
+      "prompt": "Explique em uma frase o que é DNS",
+      "rota": "chat",
+      "executavel": false,
+      "executou": false,
+      "ferramentas": 0,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "respondeu",
+      "modelos": [
+        "groq|openai/gpt-oss-120b"
+      ],
+      "segundos": 1,
+      "resposta": "**DNS (Domain Name System) é o sistema que traduce nomes de domínio legíveis por humanos em endereços IP numéricos usados pelos computadores para localizar recursos na internet.**"
+    },
+    {
+      "id": "T9",
+      "prompt": "Gere uma imagem de um gato astronauta",
+      "rota": "chat",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 1,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "respondeu",
+      "modelos": [
+        "jarvis-engine"
+      ],
+      "segundos": 7,
+      "resposta": "![um gato astronauta](/api/media?image=f51b7b97-fa12-47b9-9a80-1d7da320cffa) *Imagem em 1:1 gerada com Pollinations (grátis, com marca d’água). Prompt usado: “A brave orange tabby cat wearing a sleek, retro‑futuristic astronaut suit, floating weightlessly while tethered to a glowing space station mo"
+    },
+    {
+      "id": "T10",
+      "prompt": "Crie um README.md para este projeto descrevendo os arquivos",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 4,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 8,
+      "resposta": "## FEITO - Criação do arquivo `README.md` na raiz do projeto, contendo a descrição da estrutura e os comandos disponíveis no `package.json`. ## VERIFICADO Nada verificado por ferramenta. ## PENDENTE Nenhuma pendência."
+    }
+  ]
+}

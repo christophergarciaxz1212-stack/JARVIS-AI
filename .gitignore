@@ -1,0 +1,34 @@
+.next/
+.next-*/
+node_modules/
+.env.local
+.venv/
+__pycache__/
+data/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+
+# Distribuição
+release-staging/
+release/
+
+.tmp/
+
+
+# Pacote para compartilhar o cÃ³digo
+JARVIS-codigo-fonte.zip
+github-vitrine/
+
+# Backups e artefatos
+*.zip
+*.exe
+tsconfig.tsbuildinfo
+out*.txt
+test-output.txt
+test-results.txt
+ts-errors.txt
+*.log
+data-write-test/
+.freebuff/

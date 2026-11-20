@@ -1,0 +1,41 @@
+{
+  "label": "depois-t3",
+  "base": "http://127.0.0.1:3002",
+  "at": "2026-11-17T01:40:34.629Z",
+  "rows": [
+    {
+      "id": "T3",
+      "prompt": "Qual a versão do Node instalada neste computador?",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 3,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 7,
+      "resposta": "## FEITO - Executado o comando `node -v` para consultar a versão do Node. ## VERIFICADO - Versão do Node instalada: **v26.13.1** (informação obtida a partir da execução do comando). ## PENDENTE Nenhuma pendência. node -v → código de saída 0"
+    },
+    {
+      "id": "T6",
+      "prompt": "Quantas linhas tem o arquivo dados.csv?",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 2,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 5,
+      "resposta": "## FEITO - Contagem das linhas do arquivo `dados.csv` realizada pelo agente Engenheiro Full-stack. ## VERIFICADO - O arquivo `dados.csv` foi confirmado como tendo 9 linhas (consistindo em 8 linhas com dados e 1 linha vazia no final). ## PENDENTE - Nenhuma pendência"
+    }
+  ]
+}

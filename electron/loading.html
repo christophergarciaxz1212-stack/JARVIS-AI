@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>JARVIS AI</title>
+  <style>
+    :root {
+      --cyan: #00d4ff;
+      --violet: #a78bfa;
+      --sky: #38bdf8;
+      --bg: #02060c;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--cyan); padding: 14px; -webkit-app-region: drag; }
+
+    .frame {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border-radius: 22px;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 38%, #0b2238 0%, #050d18 45%, var(--bg) 100%);
+      border: 1px solid rgba(0, 212, 255, 0.28);
+      box-shadow: 0 0 40px rgba(0, 212, 255, 0.18), inset 0 0 60px rgba(0, 212, 255, 0.06);
+      animation: frameIn 0.9s cubic-bezier(.2, .9, .2, 1) both;
+    }
+    @keyframes frameIn {
+      from { opacity: 0; transform: scale(0.92); filter: blur(8px); }
+      to { opacity: 1; transform: scale(1); filter: blur(0); }
+    }
+
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+    .grid {
+      position: absolute; inset: -50%;
+      background-image:
+        linear-gradient(rgba(0, 212, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 212, 255, 0.06) 1px, transparent 1px);
+      background-size: 34px 34px;
+      transform: perspective(500px) rotateX(62deg) translateY(30%);
+      animation: gridMove 6s linear infinite;
+      mask-image: radial-gradient(ellipse at 50% 30%, black 10%, transparent 60%);
+      opacity: 0.7;
+    }
+    @keyframes gridMove { to { background-position: 0 34px; } }
+
+    .scan {
+      position: absolute; left: 0; right: 0; height: 120px;
+      background: linear-gradient(to bottom, transparent, rgba(0, 212, 255, 0.07), transparent);
+      animation: scan 3.2s ease-in-out infinite;
+    }
+    @keyframes scan { 0% { top: -120px; } 100% { top: 100%; } }
+
+    .corner { position: absolute; width: 22px; height: 22px; border-color: rgba(0, 212, 255, 0.6); border-style: solid; animation: blinkCorner 2s ease-in-out infinite; }
+    .tl { top: 14px; left: 14px; border-width: 2px 0 0 2px; }
+    .tr { top: 14px; right: 14px; border-width: 2px 2px 0 0; }
+    .bl { bottom: 14px; left: 14px; border-width: 0 0 2px 2px; }
+    .br { bottom: 14px; right: 14px; border-width: 0 2px 2px 0; }
+    @keyframes blinkCorner { 50% { opacity: 0.35; } }
+
+    .hud { position: absolute; top: 18px; font: 600 10px/1 'Consolas', monospace; letter-spacing: 2px; color: rgba(0, 212, 255, 0.45); }
+    .hud.left { left: 46px; } .hud.right { right: 46px; text-align: right; }
+
+    .stage { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; padding-top: 34px; }
+
+    .atom-wrap { position: relative; width: 190px; height: 190px; animation: atomIn 1.2s cubic-bezier(.2, .9, .2, 1) 0.2s both; }
+    @keyframes atomIn { from { opacity: 0; transform: scale(0.3) rotate(-90deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
+
+    .ring { position: absolute; inset: 0; border-radius: 50%; }
+    .ring.r1 { border: 1px dashed rgba(0, 212, 255, 0.35); animation: spin 14s linear infinite; }
+    .ring.r2 { inset: 12px; border: 2px solid transparent; border-top-color: rgba(0, 212, 255, 0.8); border-right-color: rgba(167, 139, 250, 0.5); animation: spin 2.6s linear infinite reverse; filter: drop-shadow(0 0 6px var(--cyan)); }
+    .ring.r3 { inset: -10px; border: 1px solid rgba(167, 139, 250, 0.18); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .shock { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 2px solid var(--cyan); opacity: 0; animation: shock 2.4s ease-out infinite; }
+    .shock.s2 { animation-delay: 0.8s; } .shock.s3 { animation-delay: 1.6s; }
+    @keyframes shock { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(6); opacity: 0; } }
+
+    .atom { position: absolute; inset: 0; animation: tilt 7s ease-in-out infinite; }
+    @keyframes tilt { 0%, 100% { transform: rotate(-8deg) scale(1); } 50% { transform: rotate(8deg) scale(1.04); } }
+    .atom svg { width: 100%; height: 100%; overflow: visible; }
+
+    h1 {
+      margin-top: 22px;
+      display: flex; gap: 10px;
+      font-size: 46px; font-weight: 800; letter-spacing: 4px;
+    }
+    h1 span {
+      display: inline-block;
+      background: linear-gradient(120deg, #e0faff 0%, var(--cyan) 35%, var(--violet) 65%, #e0faff 100%);
+      background-size: 300% 100%;
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      filter: drop-shadow(0 0 14px rgba(0, 212, 255, 0.55));
+      animation: letterIn 0.7s cubic-bezier(.2, .9, .2, 1) both, shimmer 4s linear infinite;
+    }
+    @keyframes letterIn {
+      0% { opacity: 0; transform: translateY(18px) scale(1.6); filter: blur(10px); }
+      60% { opacity: 1; filter: blur(0) drop-shadow(0 0 24px var(--cyan)); }
+      100% { opacity: 1; transform: none; }
+    }
+    @keyframes shimmer { to { background-position: -300% 0; } }
+    h1.glitch span { animation: glitch 0.25s steps(2) 1, shimmer 4s linear infinite; }
+    @keyframes glitch {
+      0% { transform: translate(2px, -1px); text-shadow: -3px 0 #ff2bd6, 3px 0 var(--cyan); }
+      50% { transform: translate(-2px, 1px); }
+      100% { transform: none; }
+    }
+
+    .tagline { margin-top: 6px; height: 16px; font: 500 11px/16px 'Consolas', monospace; letter-spacing: 3px; color: rgba(0, 212, 255, 0.6); text-transform: uppercase; }
+    .tagline::after { content: '▌'; margin-left: 2px; animation: caret 0.8s steps(1) infinite; }
+    @keyframes caret { 50% { opacity: 0; } }
+
+    .bottom { position: absolute; left: 70px; right: 70px; bottom: 40px; }
+    .status-row { display: flex; justify-content: space-between; font: 600 11px/1 'Consolas', monospace; letter-spacing: 1.5px; color: rgba(0, 212, 255, 0.75); margin-bottom: 10px; }
+    .status-row .pct { color: #e0faff; }
+    .bar { position: relative; height: 4px; border-radius: 4px; background: rgba(0, 212, 255, 0.1); overflow: hidden; }
+    .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 4px; background: linear-gradient(90deg, var(--violet), var(--cyan)); box-shadow: 0 0 12px var(--cyan); transition: width 0.4s ease; }
+    .fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent); animation: shine 1.2s linear infinite; }
+    @keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+    .error .status-row, .error .status-row .pct { color: #ff6b81; }
+    .error .fill { background: #ff4d6d; box-shadow: 0 0 12px #ff4d6d; }
+
+    .flash { position: absolute; inset: 0; background: radial-gradient(circle at 50% 35%, #ffffff, rgba(0, 212, 255, 0.6) 30%, transparent 70%); opacity: 0; pointer-events: none; }
+
+    body.exit .atom-wrap { animation: atomOut 0.8s cubic-bezier(.6, 0, .4, 1) forwards; }
+    @keyframes atomOut { to { transform: scale(4.5) rotate(120deg); opacity: 0; filter: blur(6px); } }
+    body.exit h1, body.exit .tagline, body.exit .bottom, body.exit .hud { transition: opacity 0.4s, transform 0.5s; opacity: 0; transform: translateY(12px); }
+    body.exit .flash { animation: flash 0.85s ease-out forwards; }
+    @keyframes flash { 0% { opacity: 0; } 45% { opacity: 1; } 100% { opacity: 0; } }
+    body.exit .frame { animation: frameOut 0.85s ease-in 0.3s forwards; }
+    @keyframes frameOut { to { opacity: 0; transform: scale(1.04); } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <canvas id="particles"></canvas>
+    <div class="grid"></div>
+    <div class="scan"></div>
+    <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+    <div class="hud left">SYS // JARVIS-CORE</div>
+    <div class="hud right" id="clock">--:--:--</div>
+
+    <div class="stage">
+      <div class="atom-wrap">
+        <div class="ring r3"></div>
+        <div class="ring r1"></div>
+        <div class="ring r2"></div>
+        <div class="shock"></div><div class="shock s2"></div><div class="shock s3"></div>
+        <div class="atom">
+          <svg viewBox="0 0 32 32" fill="none">
+            <defs>
+              <linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#00d4ff" /><stop offset="1" stop-color="#7c3aed" />
+              </linearGradient>
+              <radialGradient id="n">
+                <stop stop-color="#ffffff" /><stop offset="0.45" stop-color="#00d4ff" /><stop offset="1" stop-color="#00d4ff" stop-opacity="0" />
+              </radialGradient>
+              <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="0.6" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+            </defs>
+            <g id="orbits" filter="url(#glow)"></g>
+            <circle cx="16" cy="16" r="5" fill="url(#n)">
+              <animate attributeName="r" values="4;6.2;4" dur="1.8s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="16" cy="16" r="2.3" fill="#e0faff" />
+          </svg>
+        </div>
+      </div>
+
+      <h1 id="title"></h1>
+      <div class="tagline" id="tagline"></div>
+    </div>
+
+    <div class="bottom" id="bottom">
+      <div class="status-row"><span id="status">INICIALIZANDO</span><span class="pct" id="pct">0%</span></div>
+      <div class="bar"><div class="fill" id="fill"></div></div>
+    </div>
+
+    <div class="flash"></div>
+  </div>
+
+  <script>
+    // ── Atom orbits with electrons and trailing glow ──
+    const ORBIT = 'M 2.5,16 a 13.5,5.2 0 1,0 27,0 a 13.5,5.2 0 1,0 -27,0'
+    const NS = 'http://www.w3.org/2000/svg'
+    const orbitsEl = document.getElementById('orbits')
+    ;[[0, 1.6, '#00d4ff'], [60, 2.1, '#a78bfa'], [120, 2.6, '#38bdf8']].forEach(([angle, dur, color]) => {
+      const g = document.createElementNS(NS, 'g')
+      g.setAttribute('transform', `rotate(${angle} 16 16)`)
+      const path = document.createElementNS(NS, 'path')
+      path.setAttribute('d', ORBIT)
+      path.setAttribute('stroke', 'url(#g)')
+      path.setAttribute('stroke-width', '0.9')
+      path.setAttribute('stroke-dasharray', '120')
+      path.setAttribute('stroke-dashoffset', '120')
+      const draw = document.createElementNS(NS, 'animate')
+      Object.entries({ attributeName: 'stroke-dashoffset', from: '120', to: '0', dur: '1.4s', begin: `${0.3 + angle / 200}s`, fill: 'freeze' })
+        .forEach(([k, v]) => draw.setAttribute(k, v))
+      path.appendChild(draw)
+      g.appendChild(path)
+      // electron + two fading trail dots
+      ;[[1.5, 1, 0], [1.1, 0.45, 0.06], [0.8, 0.2, 0.12]].forEach(([r, op, lag]) => {
+        const c = document.createElementNS(NS, 'circle')
+        c.setAttribute('r', r)
+        c.setAttribute('fill', color)
+        c.setAttribute('opacity', op)
+        c.style.filter = `drop-shadow(0 0 1.5px ${color})`
+        const m = document.createElementNS(NS, 'animateMotion')
+        m.setAttribute('dur', `${dur}s`)
+        m.setAttribute('repeatCount', 'indefinite')
+        m.setAttribute('path', ORBIT)
+        m.setAttribute('begin', `-${lag * dur}s`)
+        c.appendChild(m)
+        g.appendChild(c)
+      })
+      orbitsEl.appendChild(g)
+    })
+
+    // ── Title letters reveal + occasional glitch ──
+    const title = document.getElementById('title')
+    'JARVIS'.split('').forEach((ch, i) => {
+      const s = document.createElement('span')
+      s.textContent = ch
+      s.style.animationDelay = `${0.7 + i * 0.11}s, ${i * 0.15}s`
+      title.appendChild(s)
+    })
+    setInterval(() => {
+      title.classList.add('glitch')
+      setTimeout(() => title.classList.remove('glitch'), 260)
+    }, 2600)
+
+    // ── Typed tagline ──
+    const taglineText = 'Agente pessoal de inteligência artificial'
+    const tagline = document.getElementById('tagline')
+    let ti = 0
+    setTimeout(function type() {
+      tagline.textContent = taglineText.slice(0, ++ti)
+      if (ti < taglineText.length) setTimeout(type, 38)
+    }, 1500)
+
+    // ── HUD clock ──
+    const clock = document.getElementById('clock')
+    const tick = () => { clock.textContent = new Date().toLocaleTimeString('pt-BR') }
+    tick(); setInterval(tick, 1000)
+
+    // ── Progress: driven by main process, eased toward target so it never looks frozen ──
+    const fill = document.getElementById('fill')
+    const pct = document.getElementById('pct')
+    const statusEl = document.getElementById('status')
+    let shown = 0, target = 8, done = false
+    const idleSteps = ['Calibrando sensores', 'Sincronizando memória', 'Conectando provedores de IA', 'Compilando módulos']
+    let idle = 0, holding = false
+    const idleTimer = setInterval(() => {
+      if (done || holding || target >= 70) return
+      statusEl.textContent = idleSteps[idle++ % idleSteps.length].toUpperCase()
+    }, 1400)
+    setInterval(() => {
+      if (shown < target) shown += Math.max(0.4, (target - shown) * 0.08)
+      else if (!done && target < 95) target += 0.15
+      shown = Math.min(shown, 100)
+      fill.style.width = shown + '%'
+      pct.textContent = Math.floor(shown) + '%'
+    }, 50)
+
+    window.jarvisStatus = (text, progress, hold) => {
+      holding = !!hold
+      if (progress < 0) {
+        document.getElementById('bottom').classList.add('error')
+        statusEl.textContent = text.toUpperCase()
+        done = true
+        return
+      }
+      statusEl.textContent = text.toUpperCase()
+      target = Math.max(target, progress)
+      if (progress >= 100) {
+        done = true
+        clearInterval(idleTimer)
+        setTimeout(() => document.body.classList.add('exit'), 250)
+      }
+    }
+
+    // ── Particle network ──
+    const cv = document.getElementById('particles')
+    const ctx = cv.getContext('2d')
+    let W, H, pts
+    function resize() {
+      W = cv.width = cv.clientWidth * devicePixelRatio
+      H = cv.height = cv.clientHeight * devicePixelRatio
+      pts = Array.from({ length: 70 }, () => ({
+        x: Math.random() * W, y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.35 * devicePixelRatio,
+        vy: (Math.random() - 0.5) * 0.35 * devicePixelRatio,
+        r: (Math.random() * 1.4 + 0.4) * devicePixelRatio,
+        hue: Math.random() < 0.7 ? '0,212,255' : '167,139,250',
+      }))
+    }
+    resize()
+    addEventListener('resize', resize)
+    const LINK = 95 * devicePixelRatio
+    ;(function frame() {
+      ctx.clearRect(0, 0, W, H)
+      for (const p of pts) {
+        p.x += p.vx; p.y += p.vy
+        if (p.x < 0 || p.x > W) p.vx *= -1
+        if (p.y < 0 || p.y > H) p.vy *= -1
+      }
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          const a = pts[i], b = pts[j]
+          const d = Math.hypot(a.x - b.x, a.y - b.y)
+          if (d < LINK) {
+            ctx.strokeStyle = `rgba(0,212,255,${0.18 * (1 - d / LINK)})`
+            ctx.lineWidth = devicePixelRatio * 0.6
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+          }
+        }
+      }
+      for (const p of pts) {
+        ctx.fillStyle = `rgba(${p.hue},0.85)`
+        ctx.shadowColor = `rgba(${p.hue},1)`
+        ctx.shadowBlur = 8
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill()
+      }
+      ctx.shadowBlur = 0
+      requestAnimationFrame(frame)
+    })()
+  </script>
+</body>
+</html>

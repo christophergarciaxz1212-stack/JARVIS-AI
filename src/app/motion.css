@@ -1,0 +1,209 @@
+/* ═══ JARVIS Motion — linguagem de movimento do app inteiro ═══════════════════════
+   Funciona sozinha em todos os botões, sem classe nenhuma:
+   - hover: o botão sobe 1 px e o ícone reage pelo significado (engrenagem gira, lixeira
+     balança, enviar decola, + gira, setas avançam, recarregar dá a volta…);
+   - clique: pressão proporcional ao tamanho (--mo-press, calculado pela MotionLayer) e
+     uma onda de luz que nasce no ponto do clique (.mo-ripple);
+   - campos: halo de foco suave.
+   Utilitários opcionais: .mo-backdrop (fundo de modal), .mo-stagger (lista em cascata),
+   .mo-spot (brilho que segue o cursor), .mo-reveal (entra ao rolar), .mo-pop-in.
+
+   Engenharia: só opacity/translate/scale/rotate (camada de composição, 60 fps). As propriedades
+   individuais translate/scale/rotate SOMAM com o `transform` do Tailwind (ex.: -translate-y-1/2
+   de botões centralizados) em vez de substituí-lo. Tudo respeita Ajustes › Aparência ›
+   Movimento ([data-motion] em <html>) e o "reduzir movimento" do Windows. */
+
+:root {
+  --mo-ease: cubic-bezier(.22, 1, .36, 1);
+  --mo-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --mo-fast: 130ms;
+  --mo-med: 220ms;
+  --mo-slow: 420ms;
+}
+
+/* ─── 1. Botões ────────────────────────────────────────────────────────────── */
+/* Duração/curva com especificidade zero: quem declarou duration-* no componente continua mandando */
+:where(button, [role="button"], [role="tab"], [role="menuitem"], summary) {
+  transition-duration: var(--mo-med);
+  transition-timing-function: var(--mo-ease);
+}
+/* A lista de propriedades precisa vencer o "transition-colors" do Tailwind para incluir translate/scale */
+button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [role="tab"], [role="menuitem"], summary {
+  transition-property: color, background-color, border-color, outline-color, outline-offset, text-decoration-color, fill, stroke,
+    opacity, box-shadow, transform, translate, scale, rotate, filter, backdrop-filter;
+}
+@media (hover: hover) and (pointer: fine) {
+  button:not(:disabled):not([data-mo-still]):hover,
+  [role="button"]:not([aria-disabled="true"]):not([data-mo-still]):hover { translate: 0 -1px; }
+}
+button:not(:disabled):not([data-mo-still]):active,
+[role="button"]:not([aria-disabled="true"]):not([data-mo-still]):active,
+[role="tab"]:active, [role="menuitem"]:active {
+  translate: 0 0;
+  scale: var(--mo-press, .96);
+  transition-duration: 70ms;
+}
+button:disabled { cursor: not-allowed; }
+
+/* Onda de clique: hospedeira recortada no formato do botão; o círculo cresce do ponto do clique */
+.mo-ripple-host { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; contain: strict; }
+.mo-ripple {
+  position: absolute; border-radius: 50%; pointer-events: none; will-change: transform, opacity;
+  background: radial-gradient(circle, rgb(var(--acc-glow) / .34) 0%, rgb(var(--acc-glow) / .16) 45%, rgb(var(--acc-glow) / 0) 70%);
+}
+
+/* ─── 2. Ícones com significado ───────────────────────────────────────────── */
+:where(button, [role="button"], [role="tab"], [role="menuitem"], a) :where(svg.lucide) {
+  transition: scale var(--mo-med) var(--mo-spring), rotate var(--mo-slow) var(--mo-ease), translate var(--mo-med) var(--mo-ease),
+    color var(--mo-med) var(--mo-ease), opacity var(--mo-med) var(--mo-ease), transform var(--mo-med) var(--mo-ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  :where(button:not(:disabled), [role="button"], [role="tab"], [role="menuitem"], a):hover :where(svg.lucide:not(.animate-spin)) { scale: 1.1; }
+
+  :where(button, [role="button"], a):hover :where(.lucide-settings, .lucide-settings-2, .lucide-cog, .lucide-sliders-horizontal) { rotate: 75deg; }
+  :where(button, [role="button"], a):hover :where(.lucide-refresh-cw, .lucide-rotate-cw, .lucide-repeat, .lucide-history) { rotate: 180deg; }
+  :where(button, [role="button"], a):hover :where(.lucide-refresh-ccw, .lucide-rotate-ccw, .lucide-undo-2) { rotate: -180deg; }
+  :where(button, [role="button"], a):hover :where(.lucide-plus, .lucide-circle-plus, .lucide-square-plus, .lucide-x) { rotate: 90deg; }
+  :where(button, [role="button"], a):hover :where(.lucide-send, .lucide-send-horizontal, .lucide-external-link, .lucide-arrow-up-right) { translate: 2px -2px; }
+  :where(button, [role="button"], a):hover :where(.lucide-arrow-up) { translate: 0 -2px; }
+  :where(button, [role="button"], a):hover :where(.lucide-arrow-right, .lucide-chevron-right, .lucide-chevrons-right, .lucide-log-out) { translate: 2px 0; }
+  :where(button, [role="button"], a):hover :where(.lucide-arrow-left, .lucide-chevron-left, .lucide-chevrons-left) { translate: -2px 0; }
+  :where(button, [role="button"], a):hover :where(.lucide-search, .lucide-zoom-in, .lucide-pencil, .lucide-pen, .lucide-pen-line) { rotate: -14deg; }
+  :where(button, [role="button"], a):hover :where(.lucide-key-round, .lucide-key) { rotate: -28deg; }
+  :where(button, [role="button"], a):hover :where(.lucide-sparkles, .lucide-wand-sparkles, .lucide-zap, .lucide-star) { rotate: 18deg; scale: 1.2; }
+  :where(button, [role="button"], a):hover :where(.lucide-sun, .lucide-moon, .lucide-palette) { rotate: 40deg; }
+  :where(button, [role="button"], a):hover :where(.lucide-trash, .lucide-trash-2) { animation: moWiggle .5s var(--mo-ease); }
+  :where(button, [role="button"], a):hover :where(.lucide-download, .lucide-arrow-down-to-line) { animation: moDrop .7s var(--mo-ease); }
+  :where(button, [role="button"], a):hover :where(.lucide-upload, .lucide-paperclip, .lucide-image-plus) { animation: moLift .7s var(--mo-ease); }
+  :where(button, [role="button"], a):hover :where(.lucide-bell, .lucide-bell-ring) { animation: moRing .8s var(--mo-ease); }
+  :where(button, [role="button"], a):hover :where(.lucide-mic, .lucide-volume-2, .lucide-audio-lines, .lucide-heart) { animation: moBeat .8s var(--mo-ease); }
+  :where(button, [role="button"], a):hover :where(.lucide-copy, .lucide-clipboard, .lucide-check) { scale: 1.18; }
+  :where(button, [role="button"], a):hover :where(.lucide-eye, .lucide-eye-off) { animation: moBlink .6s var(--mo-ease); }
+}
+@keyframes moWiggle { 0%, 100% { rotate: 0deg; } 20% { rotate: -14deg; } 45% { rotate: 11deg; } 70% { rotate: -6deg; } }
+@keyframes moDrop { 0%, 100% { translate: 0 0; } 40% { translate: 0 3px; } 65% { translate: 0 -1px; } }
+@keyframes moLift { 0%, 100% { translate: 0 0; } 40% { translate: 0 -3px; } 65% { translate: 0 1px; } }
+@keyframes moRing { 0%, 100% { rotate: 0deg; } 15% { rotate: 16deg; } 30% { rotate: -14deg; } 45% { rotate: 10deg; } 60% { rotate: -6deg; } }
+@keyframes moBeat { 0%, 100% { scale: 1.1; } 30% { scale: 1.28; } 55% { scale: 1.04; } 75% { scale: 1.16; } }
+@keyframes moBlink { 0%, 100% { scale: 1.1 1.1; } 45% { scale: 1.1 .15; } }
+
+/* ─── 3. Campos ───────────────────────────────────────────────────────────── */
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  transition: border-color var(--mo-med) var(--mo-ease), box-shadow var(--mo-slow) var(--mo-ease), background-color var(--mo-med) var(--mo-ease), color var(--mo-med) var(--mo-ease);
+}
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select):focus-visible {
+  box-shadow: 0 0 0 3px rgb(var(--acc-glow) / .12), 0 0 24px -8px rgb(var(--acc-glow) / .45);
+}
+:where(input[type="checkbox"], input[type="radio"]) { transition: scale var(--mo-med) var(--mo-spring), box-shadow var(--mo-med) var(--mo-ease); }
+:where(input[type="checkbox"], input[type="radio"]):active { scale: .86; }
+:where(input[type="checkbox"], input[type="radio"]):checked { animation: moPop .32s var(--mo-spring); }
+
+/* ─── 4. Entradas (modais, listas, conteúdo) ──────────────────────────────── */
+.mo-backdrop { animation: moFade .24s var(--mo-ease) backwards; }
+.mo-pop-in { animation: moPop .34s var(--mo-spring) backwards; }
+
+/* Lista em cascata: cada filho entra 28 ms depois do anterior (só na montagem) */
+/* backwards: depois de entrar, a animação sai do caminho (hover e transforms do componente voltam a valer) */
+.mo-stagger > * { animation: moRise .42s var(--mo-ease) backwards; }
+.mo-stagger > :nth-child(2) { animation-delay: 28ms; }
+.mo-stagger > :nth-child(3) { animation-delay: 56ms; }
+.mo-stagger > :nth-child(4) { animation-delay: 84ms; }
+.mo-stagger > :nth-child(5) { animation-delay: 112ms; }
+.mo-stagger > :nth-child(6) { animation-delay: 140ms; }
+.mo-stagger > :nth-child(7) { animation-delay: 168ms; }
+.mo-stagger > :nth-child(8) { animation-delay: 196ms; }
+.mo-stagger > :nth-child(9) { animation-delay: 224ms; }
+.mo-stagger > :nth-child(10) { animation-delay: 252ms; }
+.mo-stagger > :nth-child(11) { animation-delay: 280ms; }
+.mo-stagger > :nth-child(n+12) { animation-delay: 300ms; }
+
+/* Conteúdo que entra ao rolar (scroll-driven, sem JS) */
+@supports (animation-timeline: view()) {
+  .mo-reveal > * { animation: moReveal linear backwards; animation-timeline: view(); animation-range: entry 0% entry 55%; }
+}
+
+/* Flutuação contínua em translate/rotate: soma com o transform do componente (ex.: whileHover do
+   framer-motion), ao contrário de uma animação em `transform`, que o sobrescreveria */
+.mo-float { animation: moFloat 6.5s ease-in-out infinite; }
+@keyframes moFloat { 0%, 100% { translate: 0 0; rotate: 0deg; } 33% { translate: 0 -8px; rotate: 1deg; } 66% { translate: 0 4px; rotate: -1deg; } }
+
+@keyframes moFade { from { opacity: 0; } }
+@keyframes moRise { from { opacity: 0; translate: 0 8px; } }
+@keyframes moReveal { from { opacity: 0; translate: 0 14px; scale: .985; } }
+@keyframes moPop { 0% { scale: .6; opacity: 0; } 70% { scale: 1.08; opacity: 1; } 100% { scale: 1; } }
+
+/* ─── 5. Brilho que segue o cursor (.mo-spot; --mx/--my vêm da MotionLayer) ── */
+.mo-spot { position: relative; isolation: isolate; }
+.mo-spot::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--acc-glow) / .14), transparent 65%);
+  transition: opacity var(--mo-slow) var(--mo-ease);
+}
+@media (hover: hover) and (pointer: fine) { .mo-spot:hover::after { opacity: 1; } }
+
+/* ─── 7. Mais vida em todos os botões ───────────────────────────────────────
+   Links com cara de botão (Baixar MP4, Pegar chave, PNG/SVG…) ganham o mesmo hover/pressão;
+   botão ocupado (com ícone girando) pulsa; aba/segmento/toggle que fica ativo dá um "pop";
+   botões de acento brilham no hover; o anel de foco do teclado entra com um encaixe. */
+a[href]:is([class*="rounded"][class*="px-"], [class*="rounded"][class*="p-"]):not([data-mo-still]) {
+  transition-property: color, background-color, border-color, outline-offset, opacity, box-shadow, translate, scale, filter;
+  transition-duration: var(--mo-med);
+  transition-timing-function: var(--mo-ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  a[href]:is([class*="rounded"][class*="px-"], [class*="rounded"][class*="p-"]):not([data-mo-still]):hover { translate: 0 -1px; }
+}
+a[href]:is([class*="rounded"][class*="px-"], [class*="rounded"][class*="p-"]):not([data-mo-still]):active {
+  translate: 0 0; scale: var(--mo-press, .96); transition-duration: 70ms;
+}
+
+/* Ocupado: o botão respira enquanto o trabalho roda (o ícone já gira) */
+button:has(svg.animate-spin) { animation: moBusy 1.6s ease-in-out infinite; }
+@keyframes moBusy {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--acc-glow) / 0); }
+  50% { box-shadow: 0 0 0 3px rgb(var(--acc-glow) / .14), 0 0 18px -4px rgb(var(--acc-glow) / .55); }
+}
+
+/* Selecionado: abas, segmentos, toggles e escolhas dão um "pop" ao virar ativos */
+:is([role="tab"][aria-selected="true"], [role="radio"][aria-checked="true"], [aria-pressed="true"], [role="switch"][aria-checked="true"]) {
+  animation: moSelect .34s var(--mo-spring);
+}
+@keyframes moSelect { 0% { scale: .94; } 60% { scale: 1.035; } 100% { scale: 1; } }
+
+/* Brilho de acento no hover dos botões principais (cyan = cor de acento do app, fúcsia = vídeo) */
+@media (hover: hover) and (pointer: fine) {
+  button:not(:disabled):is([class*="bg-cyan-500"], [class*="from-cyan"], [class*="glow-cta"]):hover {
+    box-shadow: 0 6px 22px -8px rgb(var(--acc-glow) / .65);
+  }
+  button:not(:disabled):is([class*="bg-fuchsia-500"], [class*="from-fuchsia"]):hover {
+    box-shadow: 0 6px 22px -8px rgba(217, 70, 239, .6);
+  }
+  button:not(:disabled):is([class*="hover:bg-red"], [class*="hover:text-red"]):hover :where(svg.lucide) { color: rgb(252 165 165); }
+}
+
+/* Foco por teclado: o anel "encaixa" vindo de fora. Transição (não animação), para não interromper
+   as animações próprias de alguns botões (brilho do CTA, pulso do enviar) enquanto estão focados */
+:where(button, a, [role="button"], [role="tab"], summary) { outline-offset: 7px; }
+
+/* Caixas expansíveis (<details>): a seta do resumo gira e o conteúdo entra suave */
+details > summary { cursor: pointer; }
+details[open] > :not(summary) { animation: moRise .3s var(--mo-ease) backwards; }
+
+/* ─── 6. Preferências de movimento ─────────────────────────────────────────── */
+/* "Reduzido": sem deslocamentos nem ondas; cores e opacidade continuam suaves */
+[data-motion="reduced"] :is(button, [role="button"], [role="tab"], [role="menuitem"]) { translate: none !important; scale: none !important; }
+[data-motion="reduced"] svg.lucide:not(.animate-spin) { translate: none !important; rotate: none !important; scale: none !important; animation: none !important; }
+[data-motion="reduced"] .mo-stagger > *, [data-motion="reduced"] .mo-reveal > * { animation: moFade .2s ease both !important; animation-timeline: auto !important; }
+[data-motion="reduced"] a[href] { translate: none !important; scale: none !important; }
+[data-motion="reduced"] button:has(svg.animate-spin) { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  :is(button, [role="button"], [role="tab"], [role="menuitem"], a[href]) { translate: none !important; scale: none !important; }
+  svg.lucide:not(.animate-spin) { translate: none !important; rotate: none !important; scale: none !important; animation: none !important; }
+  .mo-stagger > *, .mo-reveal > *, .mo-backdrop, .mo-pop-in, .mo-float { animation: none !important; }
+  button:has(svg.animate-spin), :is([role="tab"], [role="radio"], [aria-pressed], [role="switch"]), details[open] > * { animation: none !important; }
+  .mo-spot::after, .mo-ripple-host { display: none !important; }
+}
+/* "Desligado" já zera animações e transições globalmente em globals.css; aqui só tira os efeitos estáticos */
+[data-motion="off"] :is(button, [role="button"], [role="tab"], [role="menuitem"], a[href]) { translate: none !important; scale: none !important; }
+[data-motion="off"] svg.lucide { translate: none !important; rotate: none !important; scale: none !important; }
+[data-motion="off"] .mo-spot::after, [data-motion="off"] .mo-ripple-host { display: none !important; }

@@ -1,0 +1,177 @@
+{
+  "label": "antes",
+  "base": "http://127.0.0.1:3002",
+  "at": "2026-11-17T01:30:00.076Z",
+  "rows": [
+    {
+      "id": "T1",
+      "prompt": "Crie o arquivo notas/hoje.txt com o texto: reunião às 15h",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 3,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 9,
+      "resposta": "## FEITO - Criação do arquivo `notas/hoje.txt` com o conteúdo \"reunião às 15h\". ## VERIFICADO - O conteúdo do arquivo `notas/hoje.txt` foi confirmado como correto utilizando a ferramenta `read_file`. ## PENDENTE - Nenhuma pendência"
+    },
+    {
+      "id": "T2",
+      "prompt": "Liste os arquivos .js deste projeto",
+      "rota": "agente",
+      "executavel": true,
+      "executou": false,
+      "ferramentas": 0,
+      "arquivos": 0,
+      "artefato_verificado": false,
+      "pediu_permissao": false,
+      "status": "tempo esgotado",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 243,
+      "resposta": ""
+    },
+    {
+      "id": "T3",
+      "prompt": "Qual a versão do Node instalada neste computador?",
+      "rota": "chat",
+      "executavel": true,
+      "executou": false,
+      "ferramentas": 0,
+      "arquivos": 0,
+      "artefato_verificado": false,
+      "pediu_permissao": false,
+      "status": "respondeu",
+      "modelos": [
+        "openrouter|nvidia/nemotron-3.5-super-vl:free"
+      ],
+      "segundos": 19,
+      "resposta": "A execução precisa do Modo Agente. Primeiro passo exato: rode `node -v` no terminal para exibir a versão instalada do Node.js."
+    },
+    {
+      "id": "T4",
+      "prompt": "Corrija o erro de sintaxe em buggy.js e rode node buggy.js para provar que funciona",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 5,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 9,
+      "resposta": "## FEITO - Correção do erro de sintaxe no arquivo `buggy.js` (adição da chave de fechamento da função). - Execução do comando `node buggy.js` para validação. ## VERIFICADO - O arquivo `buggy.js` foi relido para confirmar a correção sintática. - O script foi executado via terminal e validado com suce"
+    },
+    {
+      "id": "T5",
+      "prompt": "Crie fib.py que imprime os 10 primeiros números de Fibonacci e execute-o",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 4,
+      "arquivos": 1,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 47,
+      "resposta": "## FEITO - Criado o arquivo `fib.py` com a implementação do cálculo e impressão dos 10 primeiros números da sequência de Fibonacci. - Executado o script `fib.py`. ## VERIFICADO Nada verificado por ferramenta. ## PENDENTE Nenhuma pendência. python fib.py → código de saída 0"
+    },
+    {
+      "id": "T6",
+      "prompt": "Quantas linhas tem o arquivo dados.csv?",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 2,
+      "arquivos": 0,
+      "artefato_verificado": false,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 6,
+      "resposta": "## FEITO - Contou as linhas do arquivo `dados.csv` utilizando leitura de file. ## VERIFICADO - A ferramenta de leitura (`read_file`) reportou que o arquivo `dados.csv` possui 9 linhas no total. ## PENDENTE - Nenhuma pendência."
+    },
+    {
+      "id": "T7",
+      "prompt": "Rode os testes do projeto com npm test e diga o resultado",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 4,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "tempo esgotado",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 246,
+      "resposta": "> bateria@1.0.0 test > node test.js 1 teste passou cd C:\\Users\\kitoxz_\\AppData\\Local\\Temp\\jarvis-bateria-antes-1794878374706 && npm test → código de saída 0"
+    },
+    {
+      "id": "T8",
+      "prompt": "Explique em uma frase o que é DNS",
+      "rota": "chat",
+      "executavel": false,
+      "executou": false,
+      "ferramentas": 0,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "respondeu",
+      "modelos": [
+        "groq|openai/gpt-oss-120b"
+      ],
+      "segundos": 4,
+      "resposta": "DNS é o Sistema de Nomes de Domínio, que traduz nomes legíveis por humanos (como `exemplo.com`) em endereços IP numéricos usados para localizar recursos na internet."
+    },
+    {
+      "id": "T9",
+      "prompt": "Gere uma imagem de um gato astronauta",
+      "rota": "chat",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 1,
+      "arquivos": 0,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "respondeu",
+      "modelos": [
+        "jarvis-engine"
+      ],
+      "segundos": 9,
+      "resposta": "![um gato astronauta](/api/media?image=f325602c-c8fc-4df2-ab2d-68ad81b23d99) *Imagem em 1:1 gerada com Pollinations (grátis, com marca d’água). Prompt usado: “A whimsical astronaut cat floating gracefully in a luminous nebula, tethered to a sleek silver spaceship hull, gazing at distant stars while "
+    },
+    {
+      "id": "T10",
+      "prompt": "Crie um README.md para este projeto descrevendo os arquivos",
+      "rota": "agente",
+      "executavel": true,
+      "executou": true,
+      "ferramentas": 4,
+      "arquivos": 2,
+      "artefato_verificado": true,
+      "pediu_permissao": false,
+      "status": "completed",
+      "modelos": [
+        "auto"
+      ],
+      "segundos": 16,
+      "resposta": "## FEITO - Criação do arquivo `README.md` descrevendo a estrutura e o propósito dos arquivos do projeto. - Correção de erro de digitação no final do arquivo `README.md`. ## VERIFICADO Nada verificado por ferramenta. ## PENDENTE Nenhuma pendência."
+    }
+  ]
+}
