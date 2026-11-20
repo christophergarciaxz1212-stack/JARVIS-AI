@@ -1,5 +1,6 @@
 import path from 'path'
 import { dataDir, readJson, writeJsonAtomic } from './agents/fsutil'
+import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from './agents/permissions'
 
 export const ACCENTS = ['cyan', 'mono', 'blue', 'violet', 'emerald', 'amber', 'rose'] as const
 export type Accent = typeof ACCENTS[number]
@@ -9,7 +10,13 @@ export interface Prefs {
   userName: string
   agentModeDefault: boolean
   showTips: boolean
-  agent: { allowCommands: boolean; maxSteps: number; maxParallel: number; fixRounds: number }
+  agent: {
+    allowCommands: boolean; maxSteps: number; maxParallel: number; fixRounds: number
+    /** Autonomia do agente: restrito (só lê), supervisionado (pede aprovação), autônomo. */
+    permissionMode: PermissionMode
+    /** Plan Mode ligado por padrão: apresenta o plano e espera aprovação antes de executar. */
+    planFirst: boolean
+  }
   appearance: {
     motion: 'full' | 'reduced' | 'off'; particles: boolean; fontSize: 'small' | 'normal' | 'large'
     theme: 'dark' | 'light'; accent: Accent; font: 'inter' | 'system' | 'mono'
@@ -31,7 +38,7 @@ export const DEFAULT_PREFS: Prefs = {
   userName: '',
   agentModeDefault: true,
   showTips: true,
-  agent: { allowCommands: true, maxSteps: 16, maxParallel: 3, fixRounds: 1 },
+  agent: { allowCommands: true, maxSteps: 16, maxParallel: 3, fixRounds: 1, permissionMode: DEFAULT_PERMISSION_MODE, planFirst: false },
   appearance: { motion: 'full', particles: true, fontSize: 'normal', theme: 'dark', accent: 'cyan', font: 'inter', zoom: 100, chatWidth: 'wide', panels: 'solid' },
   desktop: { gpu: 'auto', backgroundOnClose: false, autoStart: false },
   hub: { autoSync: true, syncMinutes: 30, notifications: true },
@@ -61,6 +68,8 @@ export function sanitize(p: Partial<Prefs> & Record<string, unknown>): Prefs {
       maxSteps: int(a.maxSteps, 4, 40, d.agent.maxSteps),
       maxParallel: int(a.maxParallel, 1, 8, d.agent.maxParallel),
       fixRounds: int(a.fixRounds, 0, 3, d.agent.fixRounds),
+      permissionMode: PERMISSION_MODES.find(x => x === a.permissionMode) || d.agent.permissionMode,
+      planFirst: typeof a.planFirst === 'boolean' ? a.planFirst : d.agent.planFirst,
     },
     appearance: {
       motion: (['full', 'reduced', 'off'] as const).find(x => x === ap.motion) || d.appearance.motion,

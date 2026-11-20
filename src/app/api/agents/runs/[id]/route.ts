@@ -39,6 +39,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       case 'scope-deny':
         if (!ctrl.decideScope(String(body.requestId), action === 'scope-approve')) return Response.json({ error: 'Pedido não encontrado ou já decidido' }, { status: 404 })
         break
+      case 'approve':
+      case 'deny':
+        if (!ctrl.decideApproval(String(body.approvalId), action === 'approve')) {
+          return Response.json({ error: 'Pedido de aprovação não encontrado ou já decidido' }, { status: 404 })
+        }
+        break
+      case 'plan-approve':
+        if (!ctrl.approvePlan()) return Response.json({ error: 'Esta execução não está esperando aprovação de plano' }, { status: 409 })
+        break
+      case 'plan-reject':
+        if (!ctrl.rejectPlan()) return Response.json({ error: 'Esta execução não está esperando aprovação de plano' }, { status: 409 })
+        break
       case 'message':
         ctrl.userMessage(String(body.to || 'all'), String(body.content || ''))
         break

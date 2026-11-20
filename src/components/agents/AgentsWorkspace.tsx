@@ -14,6 +14,7 @@ import TeamsManager from './TeamsManager'
 import LiveTimeline from './LiveTimeline'
 import type { AgentRuntimeState, AgentTask, Project, RoleTemplate, Run, RunEvent, SessionMeta, Team } from '@/lib/agents/types'
 import { ACTIVE_RUN_STATUSES, DEFAULT_RUN_OPTIONS } from '@/lib/agents/types'
+import { PERMISSION_LABELS, PERMISSION_MODES } from '@/lib/agents/permissions'
 
 type Tab = 'live' | 'tasks' | 'messages' | 'activity' | 'files' | 'errors' | 'approvals' | 'report'
 
@@ -182,6 +183,26 @@ export default function AgentsWorkspace({
                       <NumberOpt label="Passos por tarefa" value={options.maxSteps} min={4} max={30} onChange={v => setOptions({ ...options, maxSteps: v })} />
                       <NumberOpt label="Rodadas de correção" value={options.fixRounds} min={0} max={3} onChange={v => setOptions({ ...options, fixRounds: v })} />
                       <label className="flex items-center gap-2 mt-4"><input type="checkbox" checked={options.autoFallback} onChange={e => setOptions({ ...options, autoFallback: e.target.checked })} /> Trocar modelo que falhar</label>
+                      <div className="mt-4">
+                        <div className="text-[11px] text-white/45 mb-1">Autonomia</div>
+                        <div className="flex gap-1">
+                          {PERMISSION_MODES.map(m => (
+                            <button
+                              key={m}
+                              title={PERMISSION_LABELS[m].hint}
+                              onClick={() => setOptions({ ...options, permissionMode: m })}
+                              className={`px-2 py-1 rounded-lg text-[11px] border transition-colors ${options.permissionMode === m ? 'bg-white text-black border-white' : 'border-white/15 text-white/60 hover:bg-white/5'}`}
+                            >
+                              {PERMISSION_LABELS[m].name}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="text-[10px] text-white/30 mt-1">{PERMISSION_LABELS[options.permissionMode].hint}</div>
+                      </div>
+                      <label className="flex items-center gap-2 mt-3 text-[12px] text-white/60">
+                        <input type="checkbox" checked={options.planFirst} onChange={e => setOptions({ ...options, planFirst: e.target.checked })} />
+                        Apresentar o plano e esperar aprovação antes de executar
+                      </label>
                     </div>
                   </motion.div>
                 )}
@@ -265,7 +286,15 @@ export default function AgentsWorkspace({
                 ))}
               </div>
               <div className={`p-3 ${tab === 'live' ? '' : 'max-h-[460px] overflow-y-auto'}`}>
-                {tab === 'live' && <LiveTimeline events={events} run={run} agentName={agentName} active={active} />}
+                {tab === 'live' && (
+                  <LiveTimeline
+                    events={events} run={run} agentName={agentName} active={active}
+                    actions={{
+                      onApproval: (approvalId, approve) => void control(approve ? 'approve' : 'deny', { approvalId }, approve ? 'Aprovado' : 'Negado'),
+                      onPlan: approve => void control(approve ? 'plan-approve' : 'plan-reject', {}, approve ? 'Plano aprovado — executando' : 'Plano recusado'),
+                    }}
+                  />
+                )}
                 {tab === 'tasks' && <TasksTab run={run} agentName={agentName} />}
                 {tab === 'messages' && <MessagesTab run={run} agentName={agentName} active={active} control={control} />}
                 {tab === 'activity' && <ActivityTab events={events} agentName={agentName} />}

@@ -30,6 +30,28 @@ export default function RunInlineCard({ runId, sessionId, title, onOpenWorkspace
 
   const { run, events } = useRunStream(runId, onChanged)
   const [agentNames, setAgentNames] = useState<Map<string, string>>(new Map())
+  const [deciding, setDeciding] = useState(false)
+  const [decisionError, setDecisionError] = useState('')
+
+  /** Decisões do usuário acontecem aqui na conversa; o SSE traz o novo estado. */
+  const decide = async (action: string, body: Record<string, unknown>) => {
+    setDeciding(true)
+    setDecisionError('')
+    try {
+      await api.runAction(runId, action, body)
+      onChanged?.()
+    } catch (e) {
+      setDecisionError((e as Error).message)
+    } finally {
+      setDeciding(false)
+    }
+  }
+
+  const actions = {
+    deciding,
+    onApproval: (approvalId: string, approve: boolean) => void decide(approve ? 'approve' : 'deny', { approvalId }),
+    onPlan: (approve: boolean) => void decide(approve ? 'plan-approve' : 'plan-reject', {}),
+  }
 
   useEffect(() => {
     setAgentNames(new Map((run?.agents || []).map(a => [a.id, a.name])))
@@ -57,16 +79,20 @@ export default function RunInlineCard({ runId, sessionId, title, onOpenWorkspace
     setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
   }
 
-  const pendingApprovals = run?.scopeRequests.filter(r => r.status === 'pending').length || 0
+  const pendingScopes = run?.scopeRequests.filter(r => r.status === 'pending').length || 0
+  const pendingTools = (run?.approvals || []).filter(a => a.status === 'pending').length
+  const awaitingUser = run?.status === 'awaiting_plan' || pendingTools > 0
   const commandCount = events.filter(e => e.type === 'command').length
   const fileCount = run?.changes.length || 0
   const elapsed = run?.startedAt ? (run.finishedAt || Date.now()) - run.startedAt : 0
 
-  const status = active
-    ? { icon: <Loader2 size={14} className="animate-spin text-cyan-300" />, text: 'JARVIS está trabalhando', cls: 'text-cyan-300' }
-    : failed
-      ? { icon: <XCircle size={14} className="text-red-300" />, text: 'Falhou', cls: 'text-red-300' }
-      : { icon: <CheckCircle2 size={14} className="text-green-400" />, text: 'Concluído', cls: 'text-green-400' }
+  const status = awaitingUser
+    ? { icon: <AlertTriangle size={14} className="text-amber-300" />, text: run?.status === 'awaiting_plan' ? 'Plano pronto — sua decisão' : 'Esperando sua aprovação', cls: 'text-amber-300' }
+    : active
+      ? { icon: <Loader2 size={14} className="animate-spin text-cyan-300" />, text: 'JARVIS está trabalhando', cls: 'text-cyan-300' }
+      : failed
+        ? { icon: <XCircle size={14} className="text-red-300" />, text: 'Falhou', cls: 'text-red-300' }
+        : { icon: <CheckCircle2 size={14} className="text-green-400" />, text: 'Concluído', cls: 'text-green-400' }
 
   return (
     <div className="my-1 w-full max-w-3xl rounded-2xl border border-cyan-500/15 bg-[#0a0f1a]/80 overflow-hidden shadow-[0_0_40px_rgba(0,212,255,0.05)]">
@@ -93,13 +119,20 @@ export default function RunInlineCard({ runId, sessionId, title, onOpenWorkspace
         )}
       </div>
 
-      {/* Pending approval banner */}
-      {pendingApprovals > 0 && (
+      {/* Aprovação de ferramenta: decidida na própria conversa, abaixo no transcript */}
+      {pendingTools > 0 && (
+        <div className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-amber-200 bg-amber-500/10 border-b border-amber-400/20">
+          <AlertTriangle size={12} />
+          {pendingTools === 1 ? 'JARVIS pediu uma aprovação' : `JARVIS pediu ${pendingTools} aprovações`} — decida abaixo para continuar
+        </div>
+      )}
+      {/* Pedido de escopo de arquivo: ainda decidido no workspace */}
+      {pendingScopes > 0 && (
         <button
           onClick={() => sessionId && onOpenWorkspace?.(sessionId)}
           className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-amber-200 bg-amber-500/10 border-b border-amber-400/20 text-left"
         >
-          <AlertTriangle size={12} /> JARVIS pediu aprovação para continuar — clique para decidir no workspace
+          <AlertTriangle size={12} /> JARVIS pediu permissão para um arquivo fora do escopo — clique para decidir no workspace
         </button>
       )}
 
@@ -116,7 +149,8 @@ export default function RunInlineCard({ runId, sessionId, title, onOpenWorkspace
           </div>
           <div ref={box} onScroll={onScroll} className="max-h-[380px] overflow-y-auto px-2 py-2 space-y-1.5">
             {items.length === 0 && active && <div className="text-xs text-white/35 px-2 py-3">Analisando o pedido…</div>}
-            {items.map(it => <TranscriptRow key={it.id} it={it} />)}
+            {items.map(it => <TranscriptRow key={it.id} it={it} actions={actions} />)}
+            {decisionError && <div className="text-[11px] text-red-300 px-2 py-1">{decisionError}</div>}
             {active && items.length > 0 && (
               <div className="flex items-center gap-2 text-[11px] text-cyan-200/60 py-1.5 pl-1"><Loader2 size={11} className="animate-spin" /> trabalhando…</div>
             )}

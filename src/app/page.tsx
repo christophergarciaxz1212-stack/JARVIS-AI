@@ -19,6 +19,7 @@ import {
   FolderOpen, PanelLeft,
   KeyRound, Users, GraduationCap, TrendingUp,
   Server, MessageSquarePlus, MessageCircle, ClipboardPaste, Layers,
+  ShieldCheck,
 } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
 import { toast } from 'sonner'
@@ -47,6 +48,7 @@ import SettingsPanel from '@/components/settings/SettingsPanel'
 import { usePrefs } from '@/components/settings/usePrefs'
 import { post as apiPost } from '@/components/agents/api'
 import { shouldRunAgent } from '@/lib/agents/shouldRunAgent'
+import { PERMISSION_LABELS, PERMISSION_MODES, type PermissionMode } from '@/lib/agents/permissions'
 import { hidePartialMarker } from '@/lib/motion/inline'
 import { SSEParser } from '@/lib/ai/sse'
 import { shortModelName, type StreamStatus } from '@/lib/ai/status'
@@ -239,6 +241,16 @@ export default function JarvisApp() {
   }
   const toggleSidebar = () => { setSidebarOpen(!sidebarOpen); savePanels(!sidebarOpen, rightPanelOpen) }
   const toggleRightPanel = () => { setRightPanelOpen(!rightPanelOpen); savePanels(sidebarOpen, !rightPanelOpen) }
+
+  /** Autonomia do agente nesta conversa; fica salva nas preferências. */
+  const permissionMode: PermissionMode = prefs?.agent?.permissionMode ?? 'supervisionado'
+
+  const cyclePermissionMode = useCallback(() => {
+    if (!prefs) return
+    const next = PERMISSION_MODES[(PERMISSION_MODES.indexOf(permissionMode) + 1) % PERMISSION_MODES.length]
+    updatePrefs({ agent: { ...prefs.agent, permissionMode: next } }).catch(() => {})
+    toast.success(`${PERMISSION_LABELS[next].name}: ${PERMISSION_LABELS[next].hint}`)
+  }, [permissionMode, prefs, updatePrefs])
 
   const toggleAgentMode = useCallback(() => {
     const next = !agentMode
@@ -492,15 +504,24 @@ export default function JarvisApp() {
       return
     }
 
+    // "/plan <pedido>": investiga e apresenta o plano, sem tocar no projeto até você aprovar.
+    const planCmd = /^\/plan(?:ejar)?\b\s*([\s\S]*)$/i.exec(input.trim())
+
     // Agent mode: JARVIS executes the request (files, commands) - the work shows up live, inline in the conversation
-    if (agentMode && !hasImgAtts && shouldRunAgent(input, !!lastTopologyIn(messages.map(m => m.content || '')))) {
-      const request = input.trim()
+    if (agentMode && !hasImgAtts && (planCmd?.[1]?.trim() || shouldRunAgent(input, !!lastTopologyIn(messages.map(m => m.content || ''))))) {
+      const request = (planCmd ? planCmd[1] : input).trim()
       setInput('')
       try {
         const p = prefs?.agent
         const { run } = await apiPost<{ run: { id: string; sessionId: string; projectId: string } }>('/api/agents/runs', {
           agentMode: true, projectId, request, teamId: 'preset-solo',
-          options: p ? { maxSteps: p.maxSteps, maxParallel: p.maxParallel, fixRounds: p.fixRounds, autoFallback: true } : undefined,
+          options: {
+            ...(p ? { maxSteps: p.maxSteps, maxParallel: p.maxParallel, fixRounds: p.fixRounds } : {}),
+            autoFallback: true,
+            permissionMode,
+            // O comando /plan liga o Plan Mode só nesta execução.
+            planFirst: planCmd ? true : (p?.planFirst ?? false),
+          },
         })
         if (run.projectId !== projectId) { setProjectIdState(run.projectId); try { localStorage.setItem('jarvis.project', run.projectId) } catch {} }
         setMessages(prev => [...prev,
@@ -508,7 +529,9 @@ export default function JarvisApp() {
           { id: uuidv4(), role: 'assistant', content: '', createdAt: Date.now() + 1, run: { id: run.id, sessionId: run.sessionId } },
         ])
         setSessionsRefresh(x => x + 1)
-        toast.success('JARVIS começou a trabalhar — acompanhe ao vivo na conversa')
+        toast.success(planCmd
+          ? 'JARVIS vai investigar e apresentar o plano — nada será alterado antes da sua aprovação'
+          : 'JARVIS começou a trabalhar — acompanhe ao vivo na conversa')
       } catch (e) {
         setInput(request)
         toast.error((e as Error).message)
@@ -1304,6 +1327,17 @@ export default function JarvisApp() {
                 <Zap size={10} />
                 {agentMode ? 'AGENTE: executa de verdade' : 'CHAT: só responde'}
               </button>
+              {agentMode && (
+                <button
+                  onClick={cyclePermissionMode}
+                  title={PERMISSION_LABELS[permissionMode].hint}
+                  className="flex items-center gap-1.5 text-[10px] font-mono rounded-md px-1.5 py-0.5 border border-white/10 text-white/45 hover:text-white/75 hover:bg-white/5 transition-colors"
+                >
+                  <ShieldCheck size={10} />
+                  {PERMISSION_LABELS[permissionMode].name.toUpperCase()}
+                </button>
+              )}
+              <div className="flex-1" />
               <span className="text-[10px] text-white/20 hidden sm:inline">Enter envia · Shift+Enter nova linha · Ctrl+K comandos · Esc interrompe</span>
             </div>
           </div>

@@ -1,5 +1,7 @@
 // Shared by the server runtime and the UI. Keep free of Node-only imports.
 
+import type { PermissionMode, ToolRisk } from './permissions'
+
 export type SessionKind = 'chat' | 'team'
 export type SessionStatus = 'active' | 'paused' | 'completed'
 
@@ -192,10 +194,36 @@ export interface ScopeRequest {
   at: number
 }
 
+/**
+ * Pedido de aprovação de UMA chamada de ferramenta, decidido pelo usuário na conversa.
+ * Vale só para essa chamada: aprovar uma exclusão agora não autoriza a próxima.
+ */
+export interface ApprovalRequest {
+  id: string
+  agentId: string
+  taskId?: string
+  /** Nome da ferramenta (ex.: 'run_command'). */
+  tool: string
+  /** Peso da ação, usado para o rótulo e o destaque na interface. */
+  risk: ToolRisk
+  /** Frase curta em português do que será feito. */
+  summary: string
+  /** Argumentos já resumidos — nunca contém segredos. */
+  args: Record<string, unknown>
+  status: 'pending' | 'approved' | 'denied'
+  at: number
+  decidedAt?: number
+}
+
+/** Estado de uma chamada de ferramenta, para a visualização ao vivo no chat. */
+export type ToolCallStatus = 'aguardando' | 'executando' | 'concluido' | 'falhou' | 'cancelado' | 'aprovacao'
+
 export type RunStatus =
   | 'queued'
   | 'analyzing'
   | 'planning'
+  /** Plan Mode: o plano está pronto e espera o usuário aprovar antes de executar. */
+  | 'awaiting_plan'
   | 'running'
   | 'paused'
   | 'integrating'
@@ -211,6 +239,10 @@ export interface RunOptions {
   maxSteps: number
   fixRounds: number
   autoFallback: boolean
+  /** Quanta autonomia o agente tem nesta execução. */
+  permissionMode: PermissionMode
+  /** Plan Mode: investiga e apresenta o plano, mas só executa depois do "aprovar". */
+  planFirst: boolean
 }
 
 export interface RunEvent {
@@ -240,6 +272,8 @@ export interface Run {
   messages: AgentMessage[]
   changes: FileChange[]
   scopeRequests: ScopeRequest[]
+  /** Aprovações de ferramenta pedidas ao usuário (execuções antigas podem não ter o campo). */
+  approvals?: ApprovalRequest[]
   decisions: string[]
   report?: string
   error?: string
@@ -254,11 +288,26 @@ export interface Run {
   eventCount: number
 }
 
-export const ACTIVE_RUN_STATUSES: RunStatus[] = ['queued', 'analyzing', 'planning', 'running', 'paused', 'integrating']
+export const ACTIVE_RUN_STATUSES: RunStatus[] = ['queued', 'analyzing', 'planning', 'awaiting_plan', 'running', 'paused', 'integrating']
 
 export const DEFAULT_RUN_OPTIONS: RunOptions = {
   maxParallel: 4,
   maxSteps: 14,
   fixRounds: 1,
   autoFallback: true,
+  /**
+   * Padrão de quem NÃO escolhe: mantém o comportamento histórico do runtime
+   * (o agente escreve e roda comandos, e o destrutivo ainda pede aprovação).
+   * Quem tem usuário na frente — o chat e o workspace — manda o modo escolhido
+   * nas preferências, que começa em "supervisionado".
+   */
+  permissionMode: 'autonomo',
+  planFirst: false,
+}
+
+/** Execuções paradas esperando uma decisão do usuário (plano ou aprovação de ferramenta). */
+export function isAwaitingUser(run: Pick<Run, 'status' | 'approvals' | 'scopeRequests'>): boolean {
+  if (run.status === 'awaiting_plan') return true
+  if ((run.approvals || []).some(a => a.status === 'pending')) return true
+  return (run.scopeRequests || []).some(r => r.status === 'pending')
 }

@@ -167,7 +167,9 @@ describe('versões', () => {
     } finally {
       await getEngine().remove(id)
     }
-  })
+    // Instala, atualiza duas vezes (cada uma roda os testes da skill em processo
+    // separado) e restaura: com a suíte inteira em paralelo, 20s não bastam.
+  }, 60_000)
 })
 
 describe('criação de Skills pelo JARVIS', () => {

@@ -4,6 +4,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { createProject, getProject, readEvents } from '@/lib/agents/store'
+import { PERMISSION_MODES } from '@/lib/agents/permissions'
+import type { RunOptions } from '@/lib/agents/types'
 
 export async function GET(req: NextRequest) {
   const sp = new URL(req.url).searchParams
@@ -28,6 +30,22 @@ function workspaceProject(projectId: string) {
   return createProject('JARVIS Projetos', folder).id
 }
 
+/** Aceita só valores conhecidos: um modo inválido não pode virar autonomia acidental. */
+function sanitizeOptions(raw: unknown): Partial<RunOptions> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const out: Partial<RunOptions> = {}
+  if (typeof r.permissionMode === 'string' && (PERMISSION_MODES as string[]).includes(r.permissionMode)) {
+    out.permissionMode = r.permissionMode as RunOptions['permissionMode']
+  }
+  if (typeof r.planFirst === 'boolean') out.planFirst = r.planFirst
+  for (const k of ['maxParallel', 'maxSteps', 'fixRounds'] as const) {
+    if (typeof r[k] === 'number' && Number.isFinite(r[k]) && (r[k] as number) > 0) out[k] = Math.floor(r[k] as number)
+  }
+  if (typeof r.autoFallback === 'boolean') out.autoFallback = r.autoFallback
+  return out
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -37,7 +55,7 @@ export async function POST(req: NextRequest) {
       projectId,
       request: String(body.request || ''),
       teamId: body.teamId || undefined,
-      options: body.options,
+      options: sanitizeOptions(body.options),
     })
     return Response.json({ run: ctrl.run })
   } catch (e) {

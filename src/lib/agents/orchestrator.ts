@@ -13,8 +13,9 @@ import { Scheduler } from './scheduler'
 import { describeExtension, executeTool, lockOwner, TOOL_DOCS, TOOL_SPECS, type FinishResult, type ToolHost } from './tools'
 import { getEngine } from '../engine/engine'
 import { redact, deepRedact } from '../redact'
+import { decide as decidePermission, describeRequest, PERMISSION_LABELS } from './permissions'
 import type {
-  AgentMessage, AgentRuntimeState, AgentStatus, AgentTask, Complexity, MessageKind, Run, RunEvent, RunStatus, TaskIssue, Usage,
+  AgentMessage, AgentRuntimeState, AgentStatus, AgentTask, ApprovalRequest, Complexity, MessageKind, Run, RunEvent, RunStatus, TaskIssue, Usage,
 } from './types'
 
 export interface RunDeps {
@@ -78,6 +79,13 @@ export class RunController {
   private brief = ''
   private answers = 0
   private pauseWaiters: Array<() => void> = []
+  /** Quem está esperando uma decisão do usuário (aprovação de ferramenta ou do plano). */
+  private decisionWaiters: Array<() => void> = []
+  /** Decisão do usuário sobre o plano no Plan Mode. */
+  private planDecision: 'pending' | 'approved' | 'rejected' = 'pending'
+
+  private get planStillPending() { return this.planDecision === 'pending' }
+  private get planApproved() { return this.planDecision === 'approved' }
   private settled = false
   done: Promise<void> = Promise.resolve()
 
@@ -147,6 +155,8 @@ export class RunController {
       if (!this.run.tasks.length) {
         this.setStatus('planning', 'Planejando e distribuindo tarefas')
         await this.plan()
+        // Plan Mode: investigou e planejou, mas não toca no projeto antes do "aprovar".
+        if (this.run.options.planFirst) await this.awaitPlanApproval()
       } else {
         // Resuming: tasks interrupted mid-flight start over
         for (const t of this.run.tasks) if (t.status === 'running') t.status = 'pending'
@@ -189,6 +199,31 @@ export class RunController {
       this.persistNow()
       if (!this.settled) { this.settled = true; this.deps.onSettled?.(this.run) }
     }
+  }
+
+  /**
+   * Plan Mode: para a execução com o plano pronto e espera o usuário decidir.
+   * Nada foi escrito no projeto até aqui — o planejamento só lê.
+   */
+  private async awaitPlanApproval() {
+    this.planDecision = 'pending'
+    this.setStatus('awaiting_plan', 'Plano pronto — esperando sua aprovação')
+    this.emit('plan_pending', `Plano com ${this.run.tasks.length} etapa(s). Nada foi alterado no projeto ainda.`, {
+      level: 'warn',
+      data: { steps: this.run.tasks.map(t => ({ id: t.id, title: t.title, agentId: t.agentId })), summary: this.run.planSummary },
+    })
+    this.persistNow()
+
+    // Só a decisão explícita do usuário tira a execução daqui: um despertar
+    // de outra espera (uma aprovação de ferramenta antiga) não aprova o plano.
+    while (this.planStillPending && !this.abort.signal.aborted) {
+      await new Promise<void>(resolve => {
+        this.decisionWaiters.push(resolve)
+        this.abort.signal.addEventListener('abort', () => resolve(), { once: true })
+      })
+    }
+    if (!this.planApproved || this.abort.signal.aborted) throw abortError()
+    this.setStatus('running', 'Plano aprovado — agentes trabalhando')
   }
 
   // ─── Planning ──────────────────────────────────────────────────────────────
@@ -445,19 +480,52 @@ Formato:
       const observations: string[] = []
       for (const action of turn.actions) {
         if (signal.aborted) throw abortError()
-        const host = this.toolHost(agent, task, signal)
         if (action.tool === 'send_message' || action.tool === 'delegate') this.setAgentStatus(agent, 'communicating')
+
+        // Modo de permissão: o que é livre segue; o resto pede aprovação na conversa
+        // ou é recusado pelo modo (Restrito), e o agente recebe o motivo como observação.
+        const mode = this.run.options.permissionMode || 'supervisionado'
+        const verdict = decidePermission(action.tool, action.args, mode)
+        let approvedByUser = false
+        if (!verdict.allow) {
+          if (!verdict.needsApproval) {
+            this.emit('tool_blocked', `${agent.name} → ${action.tool} recusado pelo modo ${PERMISSION_LABELS[mode].name}`, {
+              agentId: agent.id, taskId: task.id, level: 'warn',
+              data: { tool: action.tool, risk: verdict.risk, mode },
+            })
+            observations.push(`### ${action.tool} → RECUSADO: ${verdict.reason}`)
+            continue
+          }
+          const approved = await this.askApproval(agent, task, action.tool, action.args, verdict.risk, signal)
+          if (!approved) {
+            if (signal.aborted || this.abort.signal.aborted) throw abortError()
+            observations.push(`### ${action.tool} → NEGADO pelo usuário. Não repita este pedido; siga por outro caminho ou finalize explicando o que ficou pendente.`)
+            continue
+          }
+          approvedByUser = true
+        }
+
+        const host = this.toolHost(agent, task, signal, approvedByUser)
+        const startedAt = Date.now()
+        this.emit('tool_start', `${agent.name} → ${action.tool}${describeArgs(action.args)}`, {
+          agentId: agent.id, taskId: task.id,
+          data: { tool: action.tool, args: summarizeArgs(action.args), risk: verdict.risk },
+        })
         try {
           const { output, finish } = await executeTool(host, action)
           this.emit('tool', `${agent.name} → ${action.tool}${describeArgs(action.args)}`, {
-            agentId: agent.id, taskId: task.id, data: { tool: action.tool, args: summarizeArgs(action.args) },
+            agentId: agent.id, taskId: task.id,
+            data: { tool: action.tool, args: summarizeArgs(action.args), durationMs: Date.now() - startedAt, ok: true },
           })
           if (finish) return finish
           observations.push(`### ${action.tool}${describeArgs(action.args)}\n${clip(output, isLocalModel(agent.resolvedModel) ? 3_000 : 8_000)}`)
         } catch (e) {
           if (isAbort(e)) throw e
           const msg = (e as Error).message
-          this.emit('tool_error', `${agent.name} → ${action.tool}: ${msg}`, { agentId: agent.id, taskId: task.id, level: 'warn' })
+          this.emit('tool_error', `${agent.name} → ${action.tool}: ${msg}`, {
+            agentId: agent.id, taskId: task.id, level: 'warn',
+            data: { tool: action.tool, durationMs: Date.now() - startedAt, ok: false, error: msg },
+          })
           observations.push(`### ${action.tool} → ERRO: ${msg}`)
         }
         if (agent.status === 'communicating') this.setAgentStatus(agent, getRole(agent.roleId).reviewer ? 'reviewing' : 'executing')
@@ -646,13 +714,14 @@ Comece. Responda somente com o JSON.`
 
   // ─── Tool host (coordination side of the tools) ────────────────────────────
 
-  private toolHost(agent: AgentRuntimeState, task: AgentTask, signal: AbortSignal): ToolHost {
+  private toolHost(agent: AgentRuntimeState, task: AgentTask, signal: AbortSignal, approvedByUser = false): ToolHost {
     return {
       root: this.run.projectPath,
       runId: this.run.id,
       agent,
       task,
       signal,
+      approvedByUser,
       locks: this.deps.locks,
       snapshotDir: this.deps.snapshotDir,
       extraScope: () => [
@@ -864,6 +933,11 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
       this.emit('run_cancel', 'Cancelamento solicitado', { level: 'warn' })
       this.abort.abort()
       this.releasePauseWaiters()
+      // Pedidos de aprovação pendentes não ficam pendurados: o cancelamento os encerra.
+      for (const a of this.run.approvals || []) {
+        if (a.status === 'pending') { a.status = 'denied'; a.decidedAt = Date.now() }
+      }
+      this.releaseDecisionWaiters()
     }
   }
 
@@ -959,6 +1033,86 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
       : `Permissão negada para alterar ${req.path}. Siga sem alterar esse arquivo ou peça ao responsável.`)
     this.emit('scope_decision', `${approve ? 'Aprovado' : 'Negado'}: ${req.path}`, { agentId: req.agentId })
     return true
+  }
+
+  // ─── Aprovações de ferramenta (modos de permissão) ─────────────────────────
+
+  /**
+   * Registra o pedido e espera a decisão do usuário. Resolve com `true` quando aprovado.
+   * Cancelar a execução libera a espera e devolve `false` — nada fica pendurado.
+   */
+  private async askApproval(agent: AgentRuntimeState, task: AgentTask, tool: string, args: Record<string, unknown>, risk: ApprovalRequest['risk'], signal: AbortSignal): Promise<boolean> {
+    const req: ApprovalRequest = {
+      id: uuidv4(),
+      agentId: agent.id,
+      taskId: task.id,
+      tool,
+      risk,
+      summary: describeRequest(tool, args),
+      args: summarizeArgs(args),
+      status: 'pending',
+      at: Date.now(),
+    }
+    this.run.approvals ??= []
+    this.run.approvals.push(req)
+    this.emit('approval_request', `${agent.name} pede aprovação — ${req.summary}`, {
+      agentId: agent.id, taskId: task.id, level: 'warn',
+      data: { approvalId: req.id, tool, risk, summary: req.summary },
+    })
+    this.persistNow()
+
+    while (req.status === 'pending') {
+      if (signal.aborted || this.abort.signal.aborted) {
+        req.status = 'denied'
+        req.decidedAt = Date.now()
+        this.persistNow()
+        return false
+      }
+      await new Promise<void>(resolve => {
+        this.decisionWaiters.push(resolve)
+        signal.addEventListener('abort', () => resolve(), { once: true })
+      })
+    }
+    return req.status === 'approved'
+  }
+
+  /** Decisão do usuário sobre um pedido de ferramenta. */
+  decideApproval(approvalId: string, approve: boolean) {
+    const req = (this.run.approvals || []).find(a => a.id === approvalId)
+    if (!req || req.status !== 'pending') return false
+    req.status = approve ? 'approved' : 'denied'
+    req.decidedAt = Date.now()
+    this.emit('approval_decision', `${approve ? 'Aprovado' : 'Negado'} — ${req.summary}`, {
+      agentId: req.agentId, taskId: req.taskId,
+      data: { approvalId: req.id, approved: approve },
+    })
+    this.releaseDecisionWaiters()
+    this.persistNow()
+    return true
+  }
+
+  /** Plan Mode: libera a execução do plano apresentado. */
+  approvePlan() {
+    if (this.run.status !== 'awaiting_plan' || this.planDecision !== 'pending') return false
+    this.planDecision = 'approved'
+    this.emit('plan_approved', 'Plano aprovado pelo usuário — iniciando a execução')
+    this.releaseDecisionWaiters()
+    return true
+  }
+
+  /** Plan Mode: descarta o plano e encerra sem tocar no projeto. */
+  rejectPlan() {
+    if (this.run.status !== 'awaiting_plan' || this.planDecision !== 'pending') return false
+    this.planDecision = 'rejected'
+    this.emit('plan_rejected', 'Plano recusado pelo usuário — nada foi alterado no projeto')
+    this.cancel()
+    return true
+  }
+
+  private releaseDecisionWaiters() {
+    const w = this.decisionWaiters
+    this.decisionWaiters = []
+    for (const r of w) r()
   }
 
   userMessage(to: string, content: string) {

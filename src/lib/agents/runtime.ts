@@ -111,6 +111,7 @@ export class AgentRuntime {
       messages: [],
       changes: [],
       scopeRequests: [],
+      approvals: [],
       decisions: [],
       options,
       usage: { inputTokens: 0, outputTokens: 0 },
@@ -139,6 +140,9 @@ export class AgentRuntime {
     run.status = 'queued'
     run.error = undefined
     run.finishedAt = undefined
+    // Aprovações que ficaram pendentes na interrupção não valem mais: o agente
+    // vai refazer o passo e pedir de novo, com o contexto atual.
+    for (const a of run.approvals || []) if (a.status === 'pending') { a.status = 'denied'; a.decidedAt = Date.now() }
     for (const t of run.tasks) if (['running', 'cancelled', 'blocked', 'failed'].includes(t.status)) { t.status = 'pending'; t.error = undefined }
     for (const a of run.agents) { a.paused = false; if (a.status !== 'done') a.status = 'waiting' }
     updateSession(run.sessionId, { status: 'active' })

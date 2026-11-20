@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { IGNORED_DIRS, matchesAny, matchesScope, resolveInside, toRel, writeJsonAtomic } from './fsutil'
-import { isSafeAgentCommand, runCommand } from '../shell'
+import { isSafeAgentCommand, isSafeCommand, runCommand } from '../shell'
 import type { FileLockManager } from './locks'
 import type { AgentRuntimeState, AgentTask, MessageKind, TaskIssue } from './types'
 import type { ToolAction } from './parse'
@@ -126,6 +126,12 @@ export interface ToolHost {
   snapshotDir: string
   /** Scope granted on top of the role scope (task files + approved requests). */
   extraScope(): string[]
+  /**
+   * O usuário aprovou ESTA chamada na conversa. Libera o que o agente não faz
+   * sozinho (apagar, reescrever histórico do Git), mas nunca o que destrói a
+   * máquina — esse piso não é aprovável.
+   */
+  approvedByUser?: boolean
   recordChange(rel: string, action: 'created' | 'modified', added: number, removed: number): void
   sendMessage(to: string, kind: MessageKind, content: string): string
   delegate(to: string, title: string, description: string, files: string[]): string
@@ -323,8 +329,12 @@ export async function executeTool(host: ToolHost, action: ToolAction): Promise<{
       const command = str(a.command, 'command')
       const { getPrefs } = await import('../prefs')
       if (!getPrefs().agent.allowCommands) return { output: 'Recusado: o usuário desativou comandos de terminal para os agentes (⚙️ Configurações › Agente). Trabalhe só com leitura e edição de arquivos.' }
+      // Piso absoluto: formatar disco, apagar a raiz, desligar a máquina. Nem com aprovação.
+      if (!isSafeCommand(command)) return { output: 'Recusado: comando bloqueado por segurança — destrói o sistema e não é liberado nem com aprovação do usuário.' }
+      // O resto (apagar arquivo, reescrever histórico) o agente não faz sozinho,
+      // mas o usuário pode liberar na conversa.
       const blocked = isSafeAgentCommand(command)
-      if (blocked) return { output: `Recusado: ${blocked}` }
+      if (blocked && !host.approvedByUser) return { output: `Recusado: ${blocked}` }
       const timeoutMs = Math.min(Math.max(Number(a.timeout_sec) || 120, 5), 300) * 1000
       host.log('command', `$ ${command}`, { command })
       // Output is streamed to the live view in small batches while the command runs
