@@ -28,6 +28,7 @@ import {
   updateSession,
 } from '@/lib/db'
 import { memoryCommandRunner, memorySystemContext } from '@/lib/chat/memory'
+import { applyCompaction } from '@/lib/chat/compact'
 import { promptCraftContext } from '@/lib/chat/promptCraft'
 
 // Older turns add input tokens (= latency) without helping much
@@ -290,8 +291,9 @@ export async function POST(req: NextRequest) {
     rt.chatStreams.set(conversationId, streamAbort)
     req.signal.addEventListener('abort', () => streamAbort.abort(), { once: true })
 
-    // Load history
-    const history = getMessages(conversationId)
+    // Load history — já compactado quando o usuário pediu /compact: o resumo
+    // entra no lugar das mensagens antigas, que continuam guardadas e visíveis.
+    const history = applyCompaction(conversationId, getMessages(conversationId)).messages
 
     // Memória de longo prazo: tudo que o usuário pediu para lembrar (as mais relevantes primeiro)
     const memoryContext = memorySystemContext(userText) + promptCraftContext(userText)

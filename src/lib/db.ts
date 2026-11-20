@@ -110,6 +110,14 @@ export function updateConversationTitle(id: string, title: string) {
   writeStore(store)
 }
 
+/** Guarda o JSON de metadados da conversa (hoje: o ponto de compactação). */
+export function updateConversationMetadata(id: string, metadata: string) {
+  const store = readStore()
+  const c = store.conversations.find(x => x.id === id)
+  if (c) { c.metadata = metadata; c.updated_at = Date.now() }
+  writeStore(store)
+}
+
 export function deleteConversation(id: string) {
   deleteConversations([id])
 }

@@ -116,5 +116,5 @@ export function useChatContext(conversationId: string) {
   /** Itens pendentes para mandar junto da primeira mensagem de uma conversa nova. */
   const pendingPayload = useCallback(() => items.filter(i => i.pending && i.text).map(i => ({ name: i.name, text: i.text!, kind: i.kind })), [items])
 
-  return { items, busy: busy > 0, note, setNote, addFiles, addText, remove, clear, pendingPayload }
+  return { items, busy: busy > 0, note, setNote, addFiles, addText, addTexts, remove, clear, pendingPayload }
 }

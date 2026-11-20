@@ -12,6 +12,10 @@ import { getRuntime } from '@/lib/agents/runtime'
 import { memorySummary, readInstructions } from '@/lib/agents/projectMemory'
 import { PERMISSION_LABELS } from '@/lib/agents/permissions'
 import { getPrefs } from '@/lib/prefs'
+import { getMessages } from '@/lib/db'
+import { applyCompaction, buildTranscript, compactionPrompt, getCompaction, setCompaction } from '@/lib/chat/compact'
+import { defaultComplete } from '@/lib/agents/models'
+import { defaultModelFrom, getLiveCatalog } from '@/lib/ai/catalog'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -90,6 +94,47 @@ function statusText(projectId: string, sessionId: string): string {
   return linhas.join('\n')
 }
 
+/** Resume a conversa e guarda o ponto de corte. Nenhuma mensagem é apagada. */
+async function compactText(conversationId: string, signal?: AbortSignal): Promise<string> {
+  if (!conversationId) return 'Abra ou inicie uma conversa antes de compactar.'
+
+  const todas = getMessages(conversationId)
+  const { messages: atuais } = applyCompaction(conversationId, todas)
+  // Conta só o que o modelo realmente recebe hoje: compactar de novo o que já
+  // está resumido não liberaria nada.
+  if (atuais.length < 6) {
+    return 'A conversa ainda é curta — não há o que compactar. Use `/compact` quando ela ficar longa.'
+  }
+
+  const catalog = await getLiveCatalog()
+  const model = defaultModelFrom(catalog)
+  if (!model) return 'Nenhum modelo disponível para resumir. Configure uma chave em 🔑 Chaves de API.'
+
+  const transcript = buildTranscript(atuais)
+  const r = await defaultComplete(model, [{ role: 'user', content: compactionPrompt(transcript) }], signal)
+  const summary = r.text.trim()
+  if (!summary) return 'O modelo não devolveu um resumo. Tente de novo.'
+
+  const ultima = todas[todas.length - 1]
+  const anterior = getCompaction(conversationId)
+  setCompaction(conversationId, {
+    at: ultima.created_at,
+    summary,
+    covered: (anterior?.covered ?? 0) + atuais.length,
+    createdAt: Date.now(),
+  })
+
+  return [
+    `**Conversa compactada** — ${atuais.length} mensagem(ns) viraram um resumo.`,
+    '',
+    'As mensagens originais continuam aqui no histórico: o que mudou é só o que vai para o modelo daqui em diante.',
+    '',
+    '---',
+    '',
+    summary,
+  ].join('\n')
+}
+
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {}
   try { body = await req.json() } catch {}
@@ -100,6 +145,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    if (command.name === 'compact') {
+      return Response.json({ text: await compactText(String(body.conversationId || body.sessionId || ''), req.signal) })
+    }
     const text = command.name === 'skills'
       ? skillsText()
       : statusText(String(body.projectId || ''), String(body.sessionId || ''))

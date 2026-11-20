@@ -49,7 +49,8 @@ import { usePrefs } from '@/components/settings/usePrefs'
 import { post as apiPost } from '@/components/agents/api'
 import { shouldRunAgent } from '@/lib/agents/shouldRunAgent'
 import { PERMISSION_LABELS, PERMISSION_MODES, type PermissionMode } from '@/lib/agents/permissions'
-import { helpText, parseOnOff, parsePermissionArg, parseSlash } from '@/lib/chat/slash'
+import { helpText, parseOnOff, parsePermissionArg, parseSlash, referencedFiles } from '@/lib/chat/slash'
+import FileMentionMenu from '@/components/chat/FileMentionMenu'
 import { hidePartialMarker } from '@/lib/motion/inline'
 import { SSEParser } from '@/lib/ai/sse'
 import { shortModelName, type StreamStatus } from '@/lib/ai/status'
@@ -511,6 +512,37 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
       }
     }
 
+    // Arquivos citados com @ entram como contexto da conversa antes de a mensagem
+    // seguir — vale tanto para o modo agente quanto para a conversa comum.
+    const citados = referencedFiles(input)
+    /**
+     * Arquivos lidos agora. `addTexts` guarda no estado do React, que só vale no
+     * próximo render — numa conversa nova o `pendingContext()` abaixo ainda leria
+     * a lista antiga e o arquivo não seguiria com a 1ª mensagem. Por isso a cópia.
+     */
+    const anexadosAgora: Array<{ name: string; text: string; kind: 'file' }> = []
+    if (citados.length && projectId) {
+      try {
+        const r = await apiPost<{
+          files: Array<{ name: string; text: string; kind: 'file'; truncated: boolean }>
+          failed: Array<{ file: string; reason: string }>
+        }>('/api/projects', { action: 'read-files', id: projectId, files: citados })
+
+        if (r.files.length) {
+          // Numa conversa nova os itens ficam pendentes e seguem com a 1ª mensagem;
+          // numa existente vão direto para o servidor. Quem resolve isso é o hook.
+          await chatCtx.addTexts(r.files)
+          for (const f of r.files) anexadosAgora.push({ name: f.name, text: f.text, kind: 'file' })
+          toast.success(r.files.length === 1
+            ? `${r.files[0].name} anexado à conversa`
+            : `${r.files.length} arquivos do projeto anexados à conversa`)
+        }
+        for (const f of r.failed) toast.error(`${f.file}: ${f.reason}`)
+      } catch (e) {
+        toast.error(`Não consegui ler os arquivos citados: ${(e as Error).message}`)
+      }
+    }
+
     // Com imagens anexadas o pedido segue para o /api/chat (visão/edição multimodal)
     const hasImgAtts = imageAtts.length > 0
 
@@ -644,7 +676,9 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
           projectId,
           attachments: outgoing.length ? outgoing : undefined,
           // Numa conversa nova, o contexto jogado antes da 1ª mensagem vai junto (o servidor guarda)
-          context: !conversationId && pendingContext().length ? pendingContext() : undefined,
+          context: !conversationId && (pendingContext().length || anexadosAgora.length)
+            ? [...pendingContext(), ...anexadosAgora]
+            : undefined,
         }),
       })
 
@@ -795,7 +829,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
       setIsStreaming(false)
       setStreamStatus(null)
     }
-  }, [input, isStreaming, currentModel, conversationId, autoModel, projectId, agentMode, prefs, messages, openOverlay, imageAtts, pendingContext, setContextNote])
+  }, [input, isStreaming, currentModel, conversationId, autoModel, projectId, agentMode, prefs, messages, openOverlay, imageAtts, pendingContext, setContextNote, chatCtx, newChat, permissionMode, toggleAgentMode, updatePrefs])
 
   const stopGeneration = () => {
     abortRef.current?.abort()
@@ -898,6 +932,19 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
       chatCtx.addText(text)
       toast.info(`Texto longo (${text.length.toLocaleString('pt-BR')} caracteres) adicionado como contexto da conversa`)
     }
+  }
+
+  /** Onde está o cursor: o menu de @ só aparece quando ele está dentro da referência. */
+  const [caret, setCaret] = useState(0)
+
+  /** Troca o "@trecho" sendo digitado pelo caminho escolhido na lista. */
+  const pickMentionedFile = (file: string, start: number, query: string) => {
+    const antes = input.slice(0, start)
+    const depois = input.slice(start + 1 + query.length)
+    const texto = `${antes}@${file} ${depois.replace(/^\s+/, '')}`
+    setInput(texto)
+    setCaret(antes.length + file.length + 2)
+    inputRef.current?.focus()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1278,6 +1325,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
         <div className="p-4">
           <div className="relative chat-column">
             <SlashMenu input={input} onPick={t => { setInput(t); inputRef.current?.focus() }} />
+            <FileMentionMenu input={input} caret={caret} projectId={projectId} onPick={pickMentionedFile} />
             <ContextBar ctx={chatCtx} pasteOpen={pasteOpen} onClosePaste={() => setPasteOpen(false)} />
             {imageAtts.length > 0 && (
               <div className="flex items-center gap-2 px-2 pb-2 flex-wrap">
@@ -1316,7 +1364,9 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
               <textarea
                 ref={inputRef}
                 value={input}
-                onChange={e => setInput(e.target.value)}
+                onChange={e => { setInput(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length) }}
+                onKeyUp={e => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
+                onClick={e => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 placeholder="Dê uma ordem ao JARVIS: execute, crie, corrija, investigue…"

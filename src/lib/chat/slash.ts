@@ -35,12 +35,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'clear', aliases: ['limpar'], description: 'Começa uma conversa nova, sem o contexto anterior', where: 'cliente' },
   { name: 'status', aliases: ['estado'], description: 'Modelo, modo, projeto, memória e execução em andamento', where: 'servidor' },
   { name: 'skills', aliases: ['extensoes', 'plugins'], description: 'Skills, plugins e MCP instalados', where: 'servidor' },
+  { name: 'compact', aliases: ['compactar'], description: 'Resume a conversa para liberar contexto; nenhuma mensagem é apagada', where: 'servidor' },
 ]
-
-// `/compact` ainda não está aqui de propósito: compactar o histórico de verdade
-// exige um ponto de corte guardado junto da conversa, e meia implementação
-// perderia mensagens. Enquanto isso não existir, o comando não é oferecido —
-// a lista de sugestões é a lista do que funciona.
 
 export interface ParsedSlash {
   command: SlashCommand
