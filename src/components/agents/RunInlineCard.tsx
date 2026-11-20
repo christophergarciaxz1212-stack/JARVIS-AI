@@ -10,6 +10,7 @@ import { ACTIVE_RUN_STATUSES } from '@/lib/agents/types'
 import { api, fmtDuration, fmtTokens, shortModel } from './api'
 import { useRunStream } from './useRunStream'
 import { buildTranscript, TranscriptRow } from './transcript'
+import DiffView from './DiffView'
 
 /**
  * opencode-style inline view of an agent run, embedded in the chat conversation:
@@ -30,6 +31,7 @@ export default function RunInlineCard({ runId, sessionId, title, onOpenWorkspace
 
   const { run, events } = useRunStream(runId, onChanged)
   const [agentNames, setAgentNames] = useState<Map<string, string>>(new Map())
+  const [showDiff, setShowDiff] = useState(false)
   const [deciding, setDeciding] = useState(false)
   const [decisionError, setDecisionError] = useState('')
 
@@ -141,12 +143,24 @@ export default function RunInlineCard({ runId, sessionId, title, onOpenWorkspace
         <>
           <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-white/35 border-b border-white/5">
             <span>{commandCount} comando{commandCount === 1 ? '' : 's'}</span>
-            <span className="flex items-center gap-1"><FileCode2 size={10} /> {fileCount} arquivo{fileCount === 1 ? '' : 's'}</span>
+            <button
+              onClick={() => setShowDiff(v => !v)}
+              disabled={!fileCount}
+              className={`flex items-center gap-1 rounded px-1 -mx-1 transition-colors ${fileCount ? 'hover:text-white/70 hover:bg-white/5' : 'cursor-default'} ${showDiff ? 'text-white/80' : ''}`}
+              title={fileCount ? 'Ver o que mudou em cada arquivo' : 'Nenhum arquivo alterado'}
+            >
+              <FileCode2 size={10} /> {fileCount} arquivo{fileCount === 1 ? '' : 's'}
+            </button>
             {elapsed > 0 && <span>{fmtDuration(elapsed)}</span>}
             <span>{fmtTokens((run?.usage.inputTokens || 0) + (run?.usage.outputTokens || 0))} tokens</span>
             <div className="flex-1" />
             <label className="flex items-center gap-1 cursor-pointer hover:text-white/55"><input type="checkbox" className="accent-cyan-400" checked={details} onChange={e => setDetails(e.target.checked)} /> chamadas de modelo</label>
           </div>
+          {showDiff && (
+            <div className="px-2 py-2 border-b border-white/5 max-h-[420px] overflow-y-auto">
+              <DiffView runId={runId} onChanged={onChanged} />
+            </div>
+          )}
           <div ref={box} onScroll={onScroll} className="max-h-[380px] overflow-y-auto px-2 py-2 space-y-1.5">
             {items.length === 0 && active && <div className="text-xs text-white/35 px-2 py-3">Analisando o pedido…</div>}
             {items.map(it => <TranscriptRow key={it.id} it={it} actions={actions} />)}

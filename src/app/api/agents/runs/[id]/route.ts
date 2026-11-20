@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getRuntime } from '@/lib/agents/runtime'
+import { acceptFile, revertFile } from '@/lib/agents/changes'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -9,6 +10,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const action = String(body.action || '')
 
     if (action === 'resume-run') return Response.json({ run: rt.resumeRun(id).run })
+    // Decisão por arquivo: aceitar mantém a alteração; reverter devolve o original.
+    if (action === 'accept-file' || action === 'revert-file') {
+      const run = rt.getRun(id)
+      if (!run) return Response.json({ error: 'Execução não encontrada' }, { status: 404 })
+      const rel = String(body.file || '')
+      if (!rel) return Response.json({ error: 'Informe o arquivo' }, { status: 400 })
+      const out = action === 'accept-file' ? acceptFile(run, rel) : revertFile(run, rel)
+      return out.ok ? Response.json({ ok: true, action: out.action }) : Response.json({ error: out.reason }, { status: 400 })
+    }
     if (action === 'rollback') {
       if (body.confirm !== true) return Response.json({ error: 'Confirmação obrigatória para reverter' }, { status: 400 })
       return Response.json({ ok: true, ...rt.rollback(id) })

@@ -11,6 +11,8 @@ import type { Extension } from '../engine/types'
 import { buildSpreadsheet, buildReportPdf } from '../docs/generate'
 import { collectInfraSections, infraSummaryMarkdown } from '../docs/infra'
 import { generateImage } from '../media/images'
+import { gitBranch, gitCommit, gitDiff, gitLog, gitStatus } from './git'
+import { formatSearch, webFetch, webSearch } from './web'
 import { INFRA_ARG_ALIASES, INFRA_TOOL_DOCS, INFRA_TOOL_SPECS, executeInfraTool, isInfraTool } from '../infra/agentTools'
 import { SOCIAL_TOOL_DOCS, SOCIAL_TOOL_SPECS, executeSocialTool, isSocialTool } from '../social/agentTools'
 
@@ -39,6 +41,13 @@ export const TOOL_DOCS = `Ferramentas disponíveis (use o nome exato em "tool"):
 - hub_add_task {"course": "...", "title": "...", "due": "YYYY-MM-DD", "description": "...", "type": "trabalho|atividade|prova"} → registra trabalho ou prova
 - hub_complete_task {"task": "título ou id"} → marca uma tarefa como concluída
 - hub_save_study {"course": "...", "kind": "resumo|exercicios|revisao|explicacao|pesquisa", "title": "...", "content": "markdown"} → salva no histórico de estudos
+- web_search {"query": "o que procurar", "limit": 5} → procura na web e devolve título, link e resumo de cada resultado
+- web_fetch {"url": "https://..."} → abre uma página e devolve o texto dela (use depois do web_search para ler a fonte)
+- git_status {} → branch atual e arquivos alterados no repositório do projeto
+- git_diff {"file": "src/a.ts (opcional)", "staged": false} → o que mudou, em formato de diff
+- git_log {"limit": 20} → commits recentes (hash, autor, quando, mensagem)
+- git_branch {} → branches locais, com a atual marcada
+- git_commit {"message": "mensagem", "files": ["src/a.ts"]} → cria um commit (sem "files" commita tudo que está alterado). Precisa de autorização do usuário.
 - github_read {"repo": "dono/repo", "path": "opcional"} → lista arquivos do repositório ou lê um arquivo
 - local_businesses {"where": "Savassi, Belo Horizonte", "category": "padarias (opcional; vazio = todas)", "radius_m": 1500, "only_no_site": false} → empresas e comércios próximos (OpenStreetMap): nome, categoria, telefone, WhatsApp, site, e-mail, Instagram, endereço, distância e pontuação de lead (sem site = oportunidade)
 - create_spreadsheet {"name": "Nome da planilha", "sheets": [{"name": "Aba 1", "headers": ["Coluna A", "Coluna B"], "rows": [["x", 1], ["y", 2]], "totals": true}]} → gera um arquivo .xlsx REAL para o usuário baixar
@@ -78,6 +87,13 @@ export const TOOL_SPECS: ToolSpec[] = [
   { name: 'hub_add_task', description: 'Registra um trabalho ou prova', parameters: obj({ course: s('Disciplina'), title: s('Título'), due: s('YYYY-MM-DD'), description: s('Detalhes'), type: { type: 'string', enum: ['trabalho', 'atividade', 'prova'] } }, ['title']) },
   { name: 'hub_complete_task', description: 'Marca uma tarefa como concluída', parameters: obj({ task: s('Título ou id') }, ['task']) },
   { name: 'hub_save_study', description: 'Salva resumo/exercícios/revisão no histórico de estudos', parameters: obj({ course: s('Disciplina'), kind: { type: 'string', enum: ['resumo', 'exercicios', 'revisao', 'explicacao', 'pesquisa'] }, title: s('Título'), content: s('Conteúdo em Markdown') }, ['title', 'content']) },
+  { name: 'web_search', description: 'Procura na web e devolve título, link e resumo', parameters: obj({ query: s('O que procurar'), limit: { type: 'integer', description: 'Quantos resultados (1 a 10)' } }, ['query']) },
+  { name: 'web_fetch', description: 'Abre uma página da web e devolve o texto legível', parameters: obj({ url: s('Endereço http/https') }, ['url']) },
+  { name: 'git_status', description: 'Branch atual e arquivos alterados no repositório do projeto', parameters: obj({}, []) },
+  { name: 'git_diff', description: 'Diff das alterações não commitadas (ou do índice)', parameters: obj({ file: s('Arquivo específico (opcional)'), staged: { type: 'boolean', description: 'Diff do que já está no índice' } }, []) },
+  { name: 'git_log', description: 'Commits recentes do repositório', parameters: obj({ limit: { type: 'integer', description: 'Quantos commits (padrão 20)' } }, []) },
+  { name: 'git_branch', description: 'Lista as branches locais', parameters: obj({}, []) },
+  { name: 'git_commit', description: 'Cria um commit com a mensagem dada', parameters: obj({ message: s('Mensagem do commit'), files: { type: 'array', items: { type: 'string' }, description: 'Arquivos; vazio = tudo que está alterado' } }, ['message']) },
   { name: 'github_read', description: 'Lista arquivos de um repositório do GitHub ou lê um arquivo', parameters: obj({ repo: s('dono/repo'), path: s('Arquivo (opcional)') }, ['repo']) },
   { name: 'create_spreadsheet', description: 'Gera um arquivo .xlsx REAL para o usuário baixar', parameters: obj({ name: s('Nome da planilha'), sheets: { type: 'array', items: obj({ name: s('Nome da aba'), headers: { type: 'array', items: { type: 'string' } }, rows: { type: 'array', items: { type: 'array' } }, totals: { type: 'boolean' } }, ['headers', 'rows']) } }, ['sheets']) },
   { name: 'create_report', description: 'Gera um PDF de relatório profissional', parameters: obj({ title: s('Título'), subtitle: s('Subtítulo (opcional)'), sections: { type: 'array', items: obj({ heading: s('Seção'), body: s('Conteúdo (aceita Markdown simples, # subtítulos e - bullets)') }, ['heading', 'body']) }, cover: s('Descrição para capa gerada por IA (opcional)') }, ['title', 'sections']) },
@@ -352,6 +368,34 @@ export async function executeTool(host: ToolHost, action: ToolAction): Promise<{
       const status = r.timedOut ? `tempo esgotado (${timeoutMs / 1000}s)` : `código de saída ${r.exitCode}`
       host.log('command_result', `${command} → ${status}`, { command, exitCode: r.exitCode, durationMs: r.durationMs, output: (r.stdout + r.stderr).slice(-2000) }, r.exitCode === 0 ? 'info' : 'warn')
       return { output: `${status} em ${r.durationMs} ms\n--- stdout ---\n${r.stdout || '(vazio)'}\n--- stderr ---\n${r.stderr || '(vazio)'}` }
+    }
+
+    case 'web_search': {
+      const outcome = await webSearch(str(a.query, 'query'), { limit: Number(a.limit) || 5, signal: host.signal })
+      return { output: formatSearch(outcome) }
+    }
+
+    case 'web_fetch': {
+      const page = await webFetch(str(a.url, 'url'), { signal: host.signal })
+      const corte = page.truncated ? '\n\n… (página cortada)' : ''
+      return { output: `# ${page.title}\n${page.url}\n\n${page.text}${corte}` }
+    }
+
+    case 'git_status':
+      return { output: await gitStatus({ root: host.root, signal: host.signal }) }
+
+    case 'git_diff':
+      return { output: await gitDiff({ root: host.root, signal: host.signal }, { file: a.file ? String(a.file) : undefined, staged: a.staged === true }) }
+
+    case 'git_log':
+      return { output: await gitLog({ root: host.root, signal: host.signal }, Number(a.limit) || 20) }
+
+    case 'git_branch':
+      return { output: await gitBranch({ root: host.root, signal: host.signal }) }
+
+    case 'git_commit': {
+      const files = Array.isArray(a.files) ? a.files.map(String) : undefined
+      return { output: await gitCommit({ root: host.root, signal: host.signal }, { message: str(a.message, 'message'), files }) }
     }
 
     case 'send_message': {

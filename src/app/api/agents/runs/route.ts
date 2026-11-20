@@ -5,6 +5,7 @@ import os from 'os'
 import path from 'path'
 import { createProject, getProject, readEvents } from '@/lib/agents/store'
 import { PERMISSION_MODES } from '@/lib/agents/permissions'
+import { runChanges, runFileChange } from '@/lib/agents/changes'
 import type { RunOptions } from '@/lib/agents/types'
 
 export async function GET(req: NextRequest) {
@@ -14,6 +15,15 @@ export async function GET(req: NextRequest) {
   if (id) {
     const run = rt.getRun(id)
     if (!run) return Response.json({ error: 'Execução não encontrada' }, { status: 404 })
+    // ?changes=1 → diffs dos arquivos alterados; &file=<caminho> → só um deles
+    if (sp.get('changes')) {
+      const file = sp.get('file')
+      if (file) {
+        const diff = runFileChange(run, file)
+        return diff ? Response.json({ diff }) : Response.json({ error: 'Arquivo não alterado por esta execução' }, { status: 404 })
+      }
+      return Response.json(runChanges(run))
+    }
     return Response.json({ run, events: readEvents(run.sessionId, run.id, 400) })
   }
   const sessionId = sp.get('sessionId')

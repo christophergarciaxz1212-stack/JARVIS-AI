@@ -67,7 +67,8 @@ const READ_TOOLS = new Set([
   'skill_find', 'skill_read',
   'hub_search', 'hub_course', 'hub_tasks',
   'github_read', 'local_businesses', 'infra_report',
-  'git_status', 'git_diff', 'git_log',
+  'git_status', 'git_diff', 'git_log', 'git_branch',
+  'web_search', 'web_fetch',
 ])
 
 const COORDINATION_TOOLS = new Set([
@@ -78,6 +79,7 @@ const WRITE_TOOLS = new Set([
   'write_file', 'edit_file',
   'create_spreadsheet', 'create_report',
   'hub_add_task', 'hub_complete_task', 'hub_save_study',
+  'git_commit',
 ])
 
 /** Sai do computador: mensagem para terceiros, publicação, escrita em repositório remoto. */
@@ -187,6 +189,9 @@ export function describeRequest(tool: string, args: Record<string, unknown> = {}
     case 'create_report': return `Gerar o relatório ${String(args.title ?? '')}`
     case 'hub_request_action': return `Ação externa (${String(args.type ?? '')})`
     case 'skill_use': return `Usar ${String(args.tool ?? '')} da extensão ${String(args.extension ?? '')}`
+    case 'web_search': return `Buscar na web: ${String(args.query ?? '')}`
+    case 'web_fetch': return `Abrir ${String(args.url ?? '')}`
+    case 'git_commit': return `Criar commit: ${String(args.message ?? '').split(/\r?\n/)[0]}`
     case 'git_push': return 'Enviar commits para o repositório remoto'
     default: return `${tool}${path ? ` em ${path}` : ''}`
   }
