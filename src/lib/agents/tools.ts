@@ -13,6 +13,7 @@ import { collectInfraSections, infraSummaryMarkdown } from '../docs/infra'
 import { generateImage } from '../media/images'
 import { gitBranch, gitCommit, gitDiff, gitLog, gitStatus } from './git'
 import { formatSearch, webFetch, webSearch } from './web'
+import { appendMemory, readMemory, writeMemory } from './projectMemory'
 import { INFRA_ARG_ALIASES, INFRA_TOOL_DOCS, INFRA_TOOL_SPECS, executeInfraTool, isInfraTool } from '../infra/agentTools'
 import { SOCIAL_TOOL_DOCS, SOCIAL_TOOL_SPECS, executeSocialTool, isSocialTool } from '../social/agentTools'
 
@@ -41,6 +42,8 @@ export const TOOL_DOCS = `Ferramentas disponíveis (use o nome exato em "tool"):
 - hub_add_task {"course": "...", "title": "...", "due": "YYYY-MM-DD", "description": "...", "type": "trabalho|atividade|prova"} → registra trabalho ou prova
 - hub_complete_task {"task": "título ou id"} → marca uma tarefa como concluída
 - hub_save_study {"course": "...", "kind": "resumo|exercicios|revisao|explicacao|pesquisa", "title": "...", "content": "markdown"} → salva no histórico de estudos
+- remember_project {"field": "decisao|pendencia", "text": "..."} → anota na memória DESTE projeto (fica para as próximas conversas). Use quando tomar uma decisão técnica ou deixar algo para depois.
+- update_project_memory {"objetivo": "...", "arquitetura": "...", "tecnologias": "...", "convencoes": "...", "preferencias": "..."} → atualiza o que você aprendeu sobre o projeto (mande só os campos que mudaram)
 - web_search {"query": "o que procurar", "limit": 5} → procura na web e devolve título, link e resumo de cada resultado
 - web_fetch {"url": "https://..."} → abre uma página e devolve o texto dela (use depois do web_search para ler a fonte)
 - git_status {} → branch atual e arquivos alterados no repositório do projeto
@@ -87,6 +90,8 @@ export const TOOL_SPECS: ToolSpec[] = [
   { name: 'hub_add_task', description: 'Registra um trabalho ou prova', parameters: obj({ course: s('Disciplina'), title: s('Título'), due: s('YYYY-MM-DD'), description: s('Detalhes'), type: { type: 'string', enum: ['trabalho', 'atividade', 'prova'] } }, ['title']) },
   { name: 'hub_complete_task', description: 'Marca uma tarefa como concluída', parameters: obj({ task: s('Título ou id') }, ['task']) },
   { name: 'hub_save_study', description: 'Salva resumo/exercícios/revisão no histórico de estudos', parameters: obj({ course: s('Disciplina'), kind: { type: 'string', enum: ['resumo', 'exercicios', 'revisao', 'explicacao', 'pesquisa'] }, title: s('Título'), content: s('Conteúdo em Markdown') }, ['title', 'content']) },
+  { name: 'remember_project', description: 'Anota uma decisão técnica ou pendência na memória deste projeto', parameters: obj({ field: { type: 'string', enum: ['decisao', 'pendencia'] }, text: s('O que registrar') }, ['field', 'text']) },
+  { name: 'update_project_memory', description: 'Atualiza o que o JARVIS sabe sobre este projeto', parameters: obj({ objetivo: s('Para que serve'), arquitetura: s('Como está montado'), tecnologias: s('Linguagens e frameworks'), convencoes: s('Padrões de código'), preferencias: s('Preferências do usuário') }, []) },
   { name: 'web_search', description: 'Procura na web e devolve título, link e resumo', parameters: obj({ query: s('O que procurar'), limit: { type: 'integer', description: 'Quantos resultados (1 a 10)' } }, ['query']) },
   { name: 'web_fetch', description: 'Abre uma página da web e devolve o texto legível', parameters: obj({ url: s('Endereço http/https') }, ['url']) },
   { name: 'git_status', description: 'Branch atual e arquivos alterados no repositório do projeto', parameters: obj({}, []) },
@@ -135,6 +140,8 @@ export function normalizeArgs(tool: string, args: Record<string, unknown>) {
 export interface ToolHost {
   root: string
   runId: string
+  /** Projeto a que esta execução pertence — endereça a memória de projeto. */
+  projectId: string
   agent: AgentRuntimeState
   task: AgentTask
   signal: AbortSignal
@@ -368,6 +375,22 @@ export async function executeTool(host: ToolHost, action: ToolAction): Promise<{
       const status = r.timedOut ? `tempo esgotado (${timeoutMs / 1000}s)` : `código de saída ${r.exitCode}`
       host.log('command_result', `${command} → ${status}`, { command, exitCode: r.exitCode, durationMs: r.durationMs, output: (r.stdout + r.stderr).slice(-2000) }, r.exitCode === 0 ? 'info' : 'warn')
       return { output: `${status} em ${r.durationMs} ms\n--- stdout ---\n${r.stdout || '(vazio)'}\n--- stderr ---\n${r.stderr || '(vazio)'}` }
+    }
+
+    case 'remember_project': {
+      const field = String(a.field) === 'pendencia' ? 'pendencias' : 'decisoes'
+      const m = appendMemory(host.projectId, field, str(a.text, 'text'))
+      return { output: `Anotado na memória do projeto (${field}). Agora são ${m[field].length} item(ns).` }
+    }
+
+    case 'update_project_memory': {
+      const patch: Record<string, string> = {}
+      for (const k of ['objetivo', 'arquitetura', 'tecnologias', 'convencoes', 'preferencias']) {
+        if (typeof a[k] === 'string' && a[k]) patch[k] = String(a[k])
+      }
+      if (!Object.keys(patch).length) return { output: 'Nada para atualizar: mande pelo menos um campo.' }
+      writeMemory(host.projectId, patch)
+      return { output: `Memória do projeto atualizada: ${Object.keys(patch).join(', ')}.` }
     }
 
     case 'web_search': {

@@ -73,6 +73,7 @@ const READ_TOOLS = new Set([
 
 const COORDINATION_TOOLS = new Set([
   'send_message', 'delegate', 'request_scope', 'finish', 'skill_request',
+  'remember_project', 'update_project_memory',
 ])
 
 const WRITE_TOOLS = new Set([

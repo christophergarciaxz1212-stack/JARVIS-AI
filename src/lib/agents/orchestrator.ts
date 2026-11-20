@@ -14,6 +14,7 @@ import { describeExtension, executeTool, lockOwner, TOOL_DOCS, TOOL_SPECS, type 
 import { getEngine } from '../engine/engine'
 import { redact, deepRedact } from '../redact'
 import { decide as decidePermission, describeRequest, PERMISSION_LABELS } from './permissions'
+import { projectContext } from './projectMemory'
 import type {
   AgentMessage, AgentRuntimeState, AgentStatus, AgentTask, ApprovalRequest, Complexity, MessageKind, Run, RunEvent, RunStatus, TaskIssue, Usage,
 } from './types'
@@ -77,6 +78,8 @@ export class RunController {
   private inboxSeen = new Map<string, number>()
   private persistTimer: ReturnType<typeof setTimeout> | null = null
   private brief = ''
+  /** Instruções do projeto (JARVIS.md/CLAUDE.md/AGENTS.md) + memória guardada. */
+  private memo = ''
   private answers = 0
   private pauseWaiters: Array<() => void> = []
   /** Quem está esperando uma decisão do usuário (aprovação de ferramenta ou do plano). */
@@ -151,6 +154,10 @@ export class RunController {
     try {
       this.setStatus('analyzing', 'Analisando o projeto')
       this.brief = buildProjectBrief(this.run.projectPath)
+      // O que o projeto já ensinou ao JARVIS: instruções versionadas na pasta e
+      // memória guardada. Entra antes da estrutura porque vale mais que ela.
+      this.memo = projectContext({ projectId: this.run.projectId, root: this.run.projectPath })
+      if (this.memo) this.emit('project_memory', 'Li as instruções e a memória deste projeto')
 
       if (!this.run.tasks.length) {
         this.setStatus('planning', 'Planejando e distribuindo tarefas')
@@ -265,7 +272,7 @@ ${roleList}
 Formato:
 {"complexity": "small", "summary": "visão geral do plano", "decisions": ["decisão técnica"], "tasks": [{"id": "t1", "title": "...", "description": "o que fazer, critérios de pronto", "role": "frontend", "dependsOn": [], "files": ["src/x.tsx"]}]}`
 
-    const user = `# Pedido\n${this.run.request}\n\n# Projeto\n${this.brief}`
+    const user = `# Pedido\n${this.run.request}\n\n${this.memo ? `${clip(this.memo, 8_000)}\n\n` : ''}# Projeto\n${this.brief}`
     const messages: ChatMessage[] = [{ role: 'system', content: system }, { role: 'user', content: user }]
 
     let raw: Record<string, unknown> | null = null
@@ -687,7 +694,8 @@ ${TOOL_DOCS}`
     return `# Pedido do usuário
 ${this.run.request}
 
-# Projeto
+${this.memo ? `${clip(this.memo, 6_000)}
+` : ''}# Projeto
 ${clip(this.brief, isLocalModel(agent.resolvedModel) ? 5_000 : budgetTier(agent.resolvedModel || '') === 'tiny' ? 4_000 : 9_000)}
 
 # Plano da equipe
@@ -718,6 +726,7 @@ Comece. Responda somente com o JSON.`
     return {
       root: this.run.projectPath,
       runId: this.run.id,
+      projectId: this.run.projectId,
       agent,
       task,
       signal,

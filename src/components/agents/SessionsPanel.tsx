@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Archive, ArchiveRestore, Check, CheckSquare, Copy, FolderPlus, MessageSquare, MoreHorizontal, Pencil, Plus, Search,
+  Archive, ArchiveRestore, Brain, Check, CheckSquare, Copy, FolderPlus, MessageSquare, MoreHorizontal, Pencil, Plus, Search,
   Square, StopCircle, Trash2, Users, X, CircleCheck, CirclePlay,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from './api'
 import { ConfirmDialog, ProjectDialog } from './shared'
+import ProjectMemoryModal from './ProjectMemoryModal'
 import type { Project, SessionMeta } from '@/lib/agents/types'
 
 type Filter = 'all' | 'active' | 'paused' | 'completed' | 'archived'
@@ -48,6 +49,7 @@ export default function SessionsPanel({
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null)
   const [newProject, setNewProject] = useState(false)
+  const [memoryOpen, setMemoryOpen] = useState(false)
   const [confirmRemoveProject, setConfirmRemoveProject] = useState(false)
   const qRef = useRef(q)
   qRef.current = q
@@ -111,6 +113,15 @@ export default function SessionsPanel({
         >
           {projects.map(p => <option key={p.id} value={p.id}>📁 {p.name}</option>)}
         </select>
+        {project && project.path && (
+          <button
+            onClick={() => setMemoryOpen(true)}
+            title="Memória do projeto: o que o JARVIS sabe e lê antes de trabalhar aqui"
+            className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5"
+          >
+            <Brain size={14} />
+          </button>
+        )}
         <button onClick={() => setNewProject(true)} title="Novo projeto" className="p-1.5 rounded-lg text-cyan-300/80 hover:bg-cyan-500/10">
           <FolderPlus size={14} />
         </button>
@@ -300,6 +311,9 @@ export default function SessionsPanel({
             onClose={() => setNewProject(false)}
             onCreated={p => { loadProjects(); onProjectChange(p.id, p) }}
           />
+        )}
+        {memoryOpen && project && (
+          <ProjectMemoryModal projectId={project.id} projectName={project.name} onClose={() => setMemoryOpen(false)} />
         )}
     </div>
   )

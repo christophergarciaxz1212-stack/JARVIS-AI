@@ -41,6 +41,7 @@ export const TOOL_LABEL: Record<string, [string, string]> = {
   skill_find: ['🧩', 'Procurou skill'], skill_use: ['🧩', 'Usou skill'], skill_read: ['🧩', 'Leu skill'], skill_request: ['🧩', 'Pediu skill'],
   hub_search: ['🎓', 'Buscou no Hub'], hub_course: ['🎓', 'Abriu disciplina'], hub_tasks: ['🎓', 'Viu prazos'], hub_add_task: ['🎓', 'Registrou'],
   hub_complete_task: ['🎓', 'Concluiu'], hub_save_study: ['🎓', 'Salvou estudo'], github_read: ['🐙', 'Leu no GitHub'], hub_request_action: ['🛡️', 'Pediu aprovação'],
+  remember_project: ['🧠', 'Anotou na memória do projeto'], update_project_memory: ['🧠', 'Atualizou a memória do projeto'],
   web_search: ['🌐', 'Procurou na web'], web_fetch: ['🌐', 'Leu a página'],
   git_status: ['🌿', 'Viu o estado do Git'], git_diff: ['🌿', 'Viu o diff'], git_log: ['🌿', 'Viu o histórico'],
   git_branch: ['🌿', 'Listou as branches'], git_commit: ['🌿', 'Commitou'],
