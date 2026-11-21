@@ -304,7 +304,26 @@ function chain(choice: 'auto' | ImageProviderId): ImageProviderId[] {
 }
 
 /** Generates one image with the best available provider, saving it in the JARVIS gallery. */
-export async function generateImage(prompt: string, opts: ImageOptions = {}): Promise<GeneratedImage> {
+/** Imagem pronta em memória, ainda não gravada na galeria. */
+export interface RenderedImage {
+  buf: Buffer
+  type: string
+  /** Provedor que entregou, como o usuário lê ("Pollinations (grátis…)"). */
+  label: string
+  width: number
+  height: number
+  aspect: Aspect
+  englishPrompt: string
+  /** Provedores tentados antes e por que falharam. */
+  fallbacks: string[]
+}
+
+/**
+ * Gera a imagem pela cadeia de provedores, SEM gravar na galeria.
+ * O estúdio de vídeo usa isto direto: um vídeo de oito cenas não deve encher a
+ * galeria do usuário de imagens soltas. `generateImage` é este núcleo + salvar.
+ */
+export async function renderImage(prompt: string, opts: ImageOptions = {}): Promise<RenderedImage> {
   const clean = prompt.trim().slice(0, 1000)
   if (!clean) throw new Error('Descreva a imagem')
   const prefs = getPrefs().images
@@ -323,14 +342,7 @@ export async function generateImage(prompt: string, opts: ImageOptions = {}): Pr
       else if (p === 'gemini') r = await viaGemini(english, aspect)
       else r = await viaPollinations(english, aspect, seed, explicitSize ? [Math.max(256, Math.min(1536, opts.width!)), Math.max(256, Math.min(1536, opts.height!))] : undefined)
       const [width, height] = imageSize(r.buf) || (r.width && r.height ? [r.width, r.height] : POLL_SIZE[aspect])
-      const id = uuidv4()
-      const ext = /png/.test(r.type) ? 'png' : /webp/.test(r.type) ? 'webp' : 'jpg'
-      fs.mkdirSync(imagesDir(), { recursive: true })
-      const file = `${id}.${ext}`
-      fs.writeFileSync(path.join(imagesDir(), file), r.buf)
-      const img: GeneratedImage = { id, prompt: clean, englishPrompt: english, width, height, file, createdAt: Date.now(), provider: r.label, aspect, fallbacks: fallbacks.length ? fallbacks : undefined }
-      writeJsonAtomic(indexFile(), [img, ...listImages()].slice(0, 500))
-      return img
+      return { buf: r.buf, type: r.type, label: r.label, width, height, aspect, englishPrompt: english, fallbacks }
     } catch (e) {
       const msg = (e as Error).message
       fallbacks.push(`${p}: ${msg}`)
@@ -338,6 +350,19 @@ export async function generateImage(prompt: string, opts: ImageOptions = {}): Pr
     }
   }
   throw new Error(`Não consegui gerar a imagem agora (${errors || fallbacks.join('; ')}). Tente de novo em instantes.`)
+}
+
+export async function generateImage(prompt: string, opts: ImageOptions = {}): Promise<GeneratedImage> {
+  const clean = prompt.trim().slice(0, 1000)
+  const r = await renderImage(prompt, opts)
+  const id = uuidv4()
+  const ext = /png/.test(r.type) ? 'png' : /webp/.test(r.type) ? 'webp' : 'jpg'
+  fs.mkdirSync(imagesDir(), { recursive: true })
+  const file = `${id}.${ext}`
+  fs.writeFileSync(path.join(imagesDir(), file), r.buf)
+  const img: GeneratedImage = { id, prompt: clean, englishPrompt: r.englishPrompt, width: r.width, height: r.height, file, createdAt: Date.now(), provider: r.label, aspect: r.aspect, fallbacks: r.fallbacks.length ? r.fallbacks : undefined }
+  writeJsonAtomic(indexFile(), [img, ...listImages()].slice(0, 500))
+  return img
 }
 
 /**
