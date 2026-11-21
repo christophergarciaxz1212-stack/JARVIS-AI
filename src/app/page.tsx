@@ -48,6 +48,7 @@ import SettingsPanel from '@/components/settings/SettingsPanel'
 import { usePrefs } from '@/components/settings/usePrefs'
 import { post as apiPost } from '@/components/agents/api'
 import RunPanel from '@/components/agents/RunPanel'
+import TerminalPanel from '@/components/chat/TerminalPanel'
 import { shouldRunAgent } from '@/lib/agents/shouldRunAgent'
 import { PERMISSION_LABELS, PERMISSION_MODES, type PermissionMode } from '@/lib/agents/permissions'
 import { helpText, parseOnOff, parsePermissionArg, parseSlash, referencedFiles } from '@/lib/chat/slash'
@@ -57,13 +58,6 @@ import { SSEParser } from '@/lib/ai/sse'
 import { shortModelName, type StreamStatus } from '@/lib/ai/status'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
-
-interface TerminalEntry {
-  id: string
-  type: 'cmd' | 'stdout' | 'stderr' | 'info' | 'success' | 'error'
-  text: string
-  timestamp: number
-}
 
 import JarvisLogo from '@/components/chat/JarvisLogo'
 import TypingIndicator from '@/components/chat/TypingIndicator'
@@ -91,9 +85,6 @@ export default function JarvisApp() {
   // The conversation gets the room by default; the terminal/files panel opens on demand
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [rightTab, setRightTab] = useState<'run' | 'terminal' | 'memory' | 'files'>('terminal')
-  const [terminalOutput, setTerminalOutput] = useState<TerminalEntry[]>([])
-  const [terminalInput, setTerminalInput] = useState('')
-  const [terminalRunning, setTerminalRunning] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'chat' | 'skills' | 'memory'>('chat')
   const [autoModel, setAutoModel] = useState(false)
   const [projectId, setProjectIdState] = useState('geral')
@@ -286,7 +277,6 @@ export default function JarvisApp() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const termInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   // Id of a chat that the in-flight answer just created; its messages are already on screen
   const streamingConvRef = useRef('')
@@ -986,56 +976,6 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     }
   }
 
-  const runTerminalCommand = async () => {
-    if (!terminalInput.trim() || terminalRunning) return
-    const cmd = terminalInput.trim()
-    setTerminalInput('')
-    setTerminalRunning(true)
-
-    setTerminalOutput(prev => [...prev, {
-      id: uuidv4(), type: 'cmd', text: `> ${cmd}`, timestamp: Date.now(),
-    }])
-
-    try {
-      const res = await fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd, shell: 'powershell', stream: false }),
-      })
-      const data = await res.json()
-
-      if (data.stdout) {
-        setTerminalOutput(prev => [...prev, {
-          id: uuidv4(), type: 'stdout', text: data.stdout, timestamp: Date.now(),
-        }])
-      }
-      if (data.stderr) {
-        setTerminalOutput(prev => [...prev, {
-          id: uuidv4(), type: 'stderr', text: data.stderr, timestamp: Date.now(),
-        }])
-      }
-      if (data.error) {
-        setTerminalOutput(prev => [...prev, {
-          id: uuidv4(), type: 'error', text: data.error, timestamp: Date.now(),
-        }])
-      }
-
-      if (typeof data.exitCode === 'number') {
-        setTerminalOutput(prev => [...prev, {
-          id: uuidv4(), type: data.exitCode === 0 ? 'success' : 'error',
-          text: `Saiu com código ${data.exitCode} · ${data.duration}ms`,
-          timestamp: Date.now(),
-        }])
-      }
-    } catch {
-      setTerminalOutput(prev => [...prev, {
-        id: uuidv4(), type: 'error', text: 'Falha ao executar comando', timestamp: Date.now(),
-      }])
-    } finally {
-      setTerminalRunning(false)
-    }
-  }
-
   const quickActions: Array<{ icon: typeof Code2; label: string; prompt: string; open?: () => void }> = [
     { icon: Code2, label: 'Programar', prompt: 'Crie um projeto de software completo, com código, testes e README.' },
     { icon: Video, label: 'Vídeo', prompt: '', open: () => openOverlay('motion') },
@@ -1534,45 +1474,9 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
               <RunPanel runId={activeRunId} onChanged={() => setSessionsRefresh(x => x + 1)} />
             )}
 
-            {/* Terminal */}
+            {/* Terminal: sessões que ficam vivas no servidor (lib/terminal) */}
             {rightTab === 'terminal' && (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="p-2 flex items-center justify-between border-b border-white/5">
-                  <span className="text-[11px] text-white/40 font-mono">PowerShell · JARVIS</span>
-                  <button onClick={() => setTerminalOutput([])} className="p-1 rounded hover:bg-white/5">
-                    <Trash2 size={11} className="text-white/30" />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-3 font-mono text-xs terminal-output">
-                  <div className="dim mb-2" suppressHydrationWarning>JARVIS Terminal — PowerShell {new Date().toLocaleString('pt-BR')}</div>
-                  {terminalOutput.map(e => (
-                    <div key={e.id} className={`mb-0.5 ${e.type === 'cmd' ? 'cmd' : e.type === 'stderr' ? 'error' : e.type === 'error' ? 'error' : e.type === 'success' ? 'success' : ''}`}>
-                      {e.text}
-                    </div>
-                  ))}
-                  {terminalRunning && <div className="text-cyan-400 animate-pulse">Executando...</div>}
-                </div>
-                <div className="p-2 border-t border-white/5">
-                  <div className="flex items-center gap-2 bg-black/50 rounded-lg px-3 py-2 border border-white/5">
-                    <span className="text-cyan-400 font-mono text-xs">PS &gt;</span>
-                    <input
-                      ref={termInputRef}
-                      value={terminalInput}
-                      onChange={e => setTerminalInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && runTerminalCommand()}
-                      placeholder="Digite um comando..."
-                      className="flex-1 bg-transparent text-xs font-mono text-white/80 outline-none placeholder-white/20"
-                    />
-                    <button
-                      onClick={runTerminalCommand}
-                      disabled={terminalRunning}
-                      className="text-cyan-400/60 hover:text-cyan-400 transition-colors disabled:opacity-30"
-                    >
-                      {terminalRunning ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <TerminalPanel cwd={projects.find(p => p.id === projectId)?.path || undefined} />
             )}
 
             {/* Memory */}
