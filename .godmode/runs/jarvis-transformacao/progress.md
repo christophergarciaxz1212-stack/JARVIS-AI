@@ -32,9 +32,15 @@ Env: Windows 11 Pro, PowerShell 5.1 (npm via npm-cli.js), branch feature/jarvis-
 - R4: corrigi 7 erros de tipo/sintaxe no trabalho concorrente (DiagnosticsPanel, infra/diagnostics, audit.test) / why: build não fecha com eles / cost if wrong: a outra sessão pode reintroduzir; verificar no final.
 - R5: `DiagnosticsPanel` e `infra/diagnostics.ts` (antes untracked) entraram no commit da Task 1 / why: sem eles o build quebra / cost if wrong: histórico mistura trabalho de duas sessões.
 
+## Coordenação com sessão concorrente (17:22)
+- Outra sessão executou o mesmo briefing em paralelo (`JARVIS-TRANSFORM-PLAN.md`, modo delegated).
+- Fases A (diagnóstico) e B (design system) dela já incorporaram meus arquivos; C (AppShell) em andamento; E1/E2 (messageBus, leader) já existem em `src/lib/agents/`.
+- Decisão: parar implementação nas áreas dela (agentes/UI/chat/settings) para não sobrescrever trabalho ativo. Minha entrega final = diagnóstico, tokens/primitivos, docs, auditoria visual, bug fixes de build.
+
 ## Evidence log
 - 2026-11-21 baseline: `npm test` 768/769 (1 timeout flake sob I/O, isolado 17/17) — `$env:TEMP\jarvis-baseline.log`.
 - Task 1 RED: `vitest run tests/diagnostics.test.ts` → módulo ausente; GREEN 4/4. Rota unificada: 12/12 com audit.test.
 - Task 2 RED: módulo `@/lib/ui/tokens` ausente; GREEN 7/7 (tokens + diagnóstico).
 - Verificação completa: `npm test` → **75 arquivos, 777 testes, 0 falhas, EXIT=0** (`$env:TEMP\jarvis-final-tests.log`); `tsc --noEmit` EXIT=0; `eslint` 0 erros / 5 avisos antigos de `<img>`.
-- Build: 1ª tentativa falhou por `isSafeCommand` sem import em `src/lib/infra/core.ts:4` (trabalho concorrente); import adicionado; rebuild em background (`sh_1ffbc3f940018dhlNsB5C2nY1T`).
+- Build: 1ª tentativa falhou por `isSafeCommand` sem import em `src/lib/infra/core.ts:4` (trabalho concorrente); 2ª por `createdAt` em `orchestrator.ts:1303` (corrigido, commit a09a33e); 3ª por `Plus` não importado em `FilesPanel.tsx` (corrigido, commit 1b4e409).
+- Verificação final 17:25: `npm test` → **75 arquivos, 777 testes, 0 falhas, EXIT=0** (`$env:TEMP\jarvis-final-tests2.log`); `tsc --noEmit` EXIT=0; `eslint src/components/FilesPanel.tsx` EXIT=0; build final em background (`sh_1ffcbdd69001ZL2hCWNEOQ7Wci`).

@@ -1,3 +1,38 @@
+# AUDITORIA — Transformação 21/11/2026 (branch `feature/jarvis-transformacao`)
+
+Trabalho desta sessão, executado em paralelo com outra sessão que aplicava o mesmo briefing. Backups em `.tmp/backup-2026-11-21/` e `.tmp/git-status-before-transformacao.txt`. Plano: `docs/plans/2026-11-21-jarvis-transformacao-{design,impl}.md`.
+
+## O que foi entregue
+
+| Item | Arquivo / commit | Evidência |
+|---|---|---|
+| Diagnóstico interno real (exigência adicional) | `src/lib/diagnostics/modules.ts`, `/api/diagnostics`, `DiagnosticsPanel` integrado, `/diagnostics` — `d1c6dc0`, `5ee791b` | 8 sondas reais (runtime, catálogo, auditoria N1–N5, agentes, provedores, WhatsApp, persistência, build); status `ok/erro/atenção/desconhecido` com evidência e ação; SSE; nenhuma chave exposta. Tests 12/12 |
+| Contrato unificado | `DiagnosticsPayload` em `src/app/api/diagnostics/route.ts` | Serve simultaneamente o painel rico da sessão concorrente e o mapa simples de módulos |
+| Design system (base) | `src/lib/ui/tokens.ts`, `src/components/ui/` — `5ee791b` | Status sempre com texto + símbolo + `aria-label`; 8 primitivos sem dependência nova. Tests 7/7 |
+| Mapa de módulos | `docs/MODULOS.md` — `70231a6` | Onde cada coisa vive e onde adicionar funcionalidade |
+| Auditoria visual estática | `docs/auditoria/analise-visual-2026-11-21.md` — `62430a2` | 368 cianos hardcoded em 66 arquivos, 5 raios de borda, 400 variações de padding, `truncate` sem `title`, status só por cor |
+| Correções de build | `a09a33e`, `1b4e409` + imports em `core.ts` | `createdAt` em `pendingReply` do líder; `Plus` não importado no FilesPanel; `isSafeCommand` |
+
+## Verificação medida
+
+- `npm test`: **777/777 testes, 75 arquivos, EXIT=0** (duas execuções: `$env:TEMP\jarvis-final-tests.log` e `jarvis-final-tests2.log`).
+- `tsc --noEmit`: EXIT=0 (limpo).
+- `eslint`: 0 erros; 5 avisos preexistentes de `<img>`.
+- `npm run build` (`JARVIS_DIST_DIR=.next-dist`): **compilou com sucesso** (116 s), mas o pré-render de `/` falhou com `ReferenceError: showSocial is not defined` vindo de um chunk compilado durante edição concorrente. O símbolo **não existe mais em nenhum arquivo-fonte** (`grep showSocial src/` vazio). Não é defeito do código entregue nesta branch; é corrida de build com a outra sessão.
+
+## Pendências (honestas)
+
+1. **Build final verde não pôde ser afirmado**: a outra sessão continuou editando `page.tsx`/`FilesPanel.tsx` até 17:29. Reexecutar teste + build **depois** que ela terminar as Fases C–I do `JARVIS-TRANSFORM-PLAN.md`.
+2. **Fases C–I do plano concorrente** (AppShell, chat, equipes v2, settings, painéis) são de responsabilidade daquela sessão; não foram sobrescritas aqui.
+3. Auditoria visual é estática — falta inspeção em navegador (telas/modais/resoluções) após estabilização.
+4. Limpeza de `.next-*`/`out*.txt` exige confirmação; não feita.
+
+## Rollback
+
+`git revert <commit>` na ordem inversa: `1b4e409`, `a09a33e`, `62430a2`, `70231a6`, `5ee791b`, `d1c6dc0`. Os arquivos originais também estão em `.tmp/backup-2026-11-21/`. A branch pode ser descartada sem afetar `master`.
+
+---
+
 # AUDITORIA — revisão do trabalho do OpenCode (19/11/2026, Claude)
 
 Tudo que mudou desde o checkpoint `%LOCALAPPDATA%\JARVIS-checkpoints\2026-11-16_2314` (110 arquivos novos, 43 modificados) foi revisado por risco: segurança primeiro, depois correção, depois design. Detalhes e verificação: `CHANGELOG.md` (19/11).
