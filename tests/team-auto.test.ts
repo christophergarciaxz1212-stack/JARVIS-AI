@@ -137,3 +137,59 @@ describe('modelos por agente', () => {
     expect(assignAutoModels(agentes, []).size).toBe(0)
   })
 })
+
+describe('execução iniciada pelo chat fica na conversa', () => {
+  it('conversa nova: a sessão criada é do tipo chat, e reabre no chat', async () => {
+    const { getSession } = await import('@/lib/db')
+    const dir = tempProject()
+    const project = createProject(`Chat kind ${Math.random()}`, dir)
+    const rt = runtime(modeloEquipe)
+    const ctrl = rt.startRun({
+      projectId: project.id, request: 'faça algo', teamId: 'preset-solo', kind: 'chat',
+      options: { permissionMode: 'autonomo', maxSteps: 4, fixRounds: 0 } as never,
+    })
+    await ctrl.done
+    expect(getSession(ctrl.run.sessionId)?.kind).toBe('chat')
+  }, 60_000)
+
+  it('conversa existente: a execução entra nela, sem criar sessão solta', async () => {
+    const { createConversation, getMessages } = await import('@/lib/db')
+    const { v4 } = await import('uuid')
+    const dir = tempProject()
+    const project = createProject(`Chat existente ${Math.random()}`, dir)
+    const conversa = v4()
+    createConversation(conversa, 'modelo', 'Minha conversa', { projectId: project.id, kind: 'chat' })
+
+    const rt = runtime(modeloEquipe)
+    const primeira = rt.startRun({
+      sessionId: conversa, projectId: project.id, request: 'primeiro pedido', teamId: 'preset-solo', kind: 'chat',
+      options: { permissionMode: 'autonomo', maxSteps: 4, fixRounds: 0 } as never,
+    })
+    await primeira.done
+    const segunda = rt.startRun({
+      sessionId: conversa, projectId: project.id, request: 'segundo pedido', teamId: 'preset-solo', kind: 'chat',
+      options: { permissionMode: 'autonomo', maxSteps: 4, fixRounds: 0 } as never,
+    })
+    await segunda.done
+
+    // As duas execuções moram na mesma conversa
+    expect(primeira.run.sessionId).toBe(conversa)
+    expect(segunda.run.sessionId).toBe(conversa)
+    const textos = getMessages(conversa).map(m => m.content)
+    expect(textos).toContain('primeiro pedido')
+    expect(textos).toContain('segundo pedido')
+  }, 60_000)
+
+  it('sem dizer o tipo, continua criando sessão de equipe (workspace)', async () => {
+    const { getSession } = await import('@/lib/db')
+    const dir = tempProject()
+    const project = createProject(`Team kind ${Math.random()}`, dir)
+    const rt = runtime(modeloEquipe)
+    const ctrl = rt.startRun({
+      projectId: project.id, request: 'faça algo', teamId: 'preset-solo',
+      options: { permissionMode: 'autonomo', maxSteps: 4, fixRounds: 0 } as never,
+    })
+    await ctrl.done
+    expect(getSession(ctrl.run.sessionId)?.kind).toBe('team')
+  }, 60_000)
+})

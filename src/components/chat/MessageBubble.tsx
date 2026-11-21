@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { Copy, Loader2, Square, Volume2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Copy, Loader2, Pencil, RefreshCw, Square, Volume2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { playSpeech, useSpeech } from '@/components/voice/useSpeech'
 import { usePrefs } from '@/components/settings/usePrefs'
@@ -19,7 +19,17 @@ import { extractAllTags } from '@/lib/ai/inline'
 import InlineImageInline from '@/components/chat/InlineImageInline'
 import type { Message } from '@/types'
 
-export default function MessageBubble({ msg, onCopy, streaming = false }: { msg: Message; onCopy: (t: string) => void; streaming?: boolean }) {
+export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, onRegenerate }: {
+  msg: Message
+  onCopy: (t: string) => void
+  streaming?: boolean
+  /** Só vem quando a mensagem pode ser editada (tem id real no servidor). */
+  onEdit?: (msg: Message, texto: string) => void
+  /** Só vem na última resposta, quando dá para refazê-la. */
+  onRegenerate?: (msg: Message) => void
+}) {
+  const [editando, setEditando] = useState(false)
+  const [rascunho, setRascunho] = useState(msg.content)
   const isUser = msg.role === 'user'
   const isUserMsg = msg.role === 'user'
   const { clean: extractedClean, videoJobs, imageJobs } = extractAllTags(msg.content)
@@ -52,7 +62,32 @@ export default function MessageBubble({ msg, onCopy, streaming = false }: { msg:
         </div>
       )}
       <div className={`max-w-[80%] group relative ${isUser ? 'msg-user' : 'msg-assistant'} px-4 py-3 rounded-xl`}>
-        {isUser ? (
+        {isUser && editando ? (
+          <div className="min-w-[260px]">
+            <textarea
+              value={rascunho}
+              autoFocus
+              rows={Math.min(10, Math.max(2, rascunho.split('\n').length))}
+              onChange={e => setRascunho(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { setEditando(false); setRascunho(msg.content) }
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && rascunho.trim()) { setEditando(false); onEdit?.(msg, rascunho.trim()) }
+              }}
+              className="w-full bg-black/30 rounded-lg px-2 py-1.5 text-sm text-white/90 outline-none border border-white/10 resize-y"
+            />
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[10px] text-white/35 flex-1">As respostas depois desta mensagem serão refeitas.</span>
+              <button onClick={() => { setEditando(false); setRascunho(msg.content) }} className="px-2 py-0.5 rounded-lg text-[11px] border border-white/15 text-white/65 hover:bg-white/5">Cancelar</button>
+              <button
+                disabled={!rascunho.trim() || rascunho.trim() === msg.content.trim()}
+                onClick={() => { setEditando(false); onEdit?.(msg, rascunho.trim()) }}
+                className="px-2 py-0.5 rounded-lg text-[11px] bg-white text-black hover:bg-white/90 disabled:opacity-40"
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
+        ) : isUser ? (
           <p className="text-sm text-white/90 leading-relaxed whitespace-pre-wrap">{msg.content}</p>
         ) : (
           <>
@@ -72,6 +107,24 @@ export default function MessageBubble({ msg, onCopy, streaming = false }: { msg:
         >
           <Copy size={10} />
         </button>
+        {isUser && onEdit && !editando && (
+          <button
+            onClick={() => { setRascunho(msg.content); setEditando(true) }}
+            className="absolute -top-2 right-5 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+            title="Editar e reenviar"
+          >
+            <Pencil size={10} />
+          </button>
+        )}
+        {!isUser && onRegenerate && !streaming && (
+          <button
+            onClick={() => onRegenerate(msg)}
+            className="absolute -top-2 right-12 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+            title="Gerar outra resposta"
+          >
+            <RefreshCw size={10} />
+          </button>
+        )}
         {!isUser && !streaming && clean.trim() && (
           <button
             onClick={listen}

@@ -10,7 +10,7 @@ import {
 import { rollbackSnapshots } from './tools'
 import { withRecovery, withRecoverySync } from '../infra/reliability'
 import type { Provider as LiveProvider } from '@/types'
-import type { Run, RunOptions, SessionStatus } from './types'
+import type { Run, RunOptions, SessionKind, SessionStatus } from './types'
 import { ACTIVE_RUN_STATUSES, DEFAULT_RUN_OPTIONS } from './types'
 
 export interface StartRunInput {
@@ -19,6 +19,11 @@ export interface StartRunInput {
   request: string
   teamId?: string
   options?: Partial<RunOptions>
+  /**
+   * Tipo da sessão criada quando não há uma. O chat manda 'chat': assim a
+   * conversa reabre no chat, e não no workspace de equipe.
+   */
+  kind?: SessionKind
 }
 
 /**
@@ -87,7 +92,7 @@ export class AgentRuntime {
     let sessionId = input.sessionId
     if (!sessionId || !getSession(sessionId)) {
       sessionId = uuidv4()
-      createConversation(sessionId, 'equipe', request.slice(0, 60) + (request.length > 60 ? '...' : ''), { projectId: project.id, kind: 'team', teamId: input.teamId })
+      createConversation(sessionId, 'equipe', request.slice(0, 60) + (request.length > 60 ? '...' : ''), { projectId: project.id, kind: input.kind ?? 'team', teamId: input.teamId })
     }
     if (this.activeRunForSession(sessionId)) throw new Error('Esta sessão já tem uma execução em andamento')
 

@@ -243,6 +243,29 @@ export function addMessage(msg: { id: string; conversationId: string; role: stri
   writeStore(store)
 }
 
+/**
+ * Corta a conversa a partir de uma mensagem (inclusive): ela e tudo que veio
+ * depois saem. É o que editar uma mensagem e regenerar uma resposta fazem — o
+ * mesmo que no Claude e no ChatGPT, onde a conversa segue a partir do ponto
+ * alterado. Devolve o que foi removido, ou null se a mensagem não existe nesta
+ * conversa (nada é apagado nesse caso).
+ */
+export function truncateMessagesFrom(conversationId: string, messageId: string): { removed: number; fromCreatedAt: number } | null {
+  const store = readStore()
+  const daConversa = store.messages
+    .filter(m => m.conversation_id === conversationId)
+    .sort((a, b) => a.created_at - b.created_at)
+  const i = daConversa.findIndex(m => m.id === messageId)
+  if (i < 0) return null
+
+  const sair = new Set(daConversa.slice(i).map(m => m.id))
+  store.messages = store.messages.filter(m => !sair.has(m.id))
+  const c = store.conversations.find(x => x.id === conversationId)
+  if (c) c.updated_at = Date.now()
+  writeStore(store)
+  return { removed: sair.size, fromCreatedAt: daConversa[i].created_at }
+}
+
 export function getMessages(conversationId: string) {
   const store = readStore()
   return store.messages.filter(m => m.conversation_id === conversationId).sort((a, b) => a.created_at - b.created_at)

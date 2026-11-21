@@ -355,6 +355,7 @@ export default function JarvisApp() {
         if (d.messages) {
           setMessages(d.messages.map((m: { id: string; role: string; content: string; created_at: number; model?: string }) => ({
             id: m.id,
+            serverId: m.id,
             role: m.role as Message['role'],
             content: m.content,
             createdAt: m.created_at,
@@ -634,6 +635,10 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
         const equipe = decideTeam(request)
         const { run } = await apiPost<{ run: { id: string; sessionId: string; projectId: string } }>('/api/agents/runs', {
           agentMode: true, projectId, request,
+          // A execução entra NA conversa atual. Sem isso, cada pedido criava uma
+          // sessão solta do tipo "equipe", que ao reabrir caía no workspace.
+          sessionId: conversationId || undefined,
+          kind: 'chat',
           teamId: equipe.plan === 'equipe' ? undefined : 'preset-solo',
           options: {
             ...(p ? { maxSteps: p.maxSteps, maxParallel: p.maxParallel, fixRounds: p.fixRounds } : {}),
@@ -644,6 +649,13 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
           },
         })
         if (run.projectId !== projectId) { setProjectIdState(run.projectId); try { localStorage.setItem('jarvis.project', run.projectId) } catch {} }
+        // Conversa nova: a execução criou a sessão, e a conversa passa a ser ela.
+        // streamingConvRef evita que a troca de id recarregue as mensagens do
+        // disco e apague o cartão ao vivo que acabou de ser adicionado.
+        if (!conversationId && run.sessionId) {
+          streamingConvRef.current = run.sessionId
+          setConversationId(run.sessionId)
+        }
         setMessages(prev => [...prev,
           { id: uuidv4(), role: 'user', content: request, createdAt: Date.now() },
           { id: uuidv4(), role: 'assistant', content: '', createdAt: Date.now() + 1, run: { id: run.id, sessionId: run.sessionId } },
@@ -737,6 +749,9 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
         model?: string
         message?: string
         conversationId?: string
+        /** Ids reais no servidor, enviados no "done": permitem editar e regenerar. */
+        messageId?: string
+        userMessageId?: string
         phase?: StreamStatus['phase']
         attempt?: number
         delayMs?: number
@@ -808,6 +823,10 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
             model: data.model,
             stats,
             metadata: usage ? { ...m.metadata, usage, elapsedMs: data.elapsedMs } : m.metadata,
+            serverId: typeof data.messageId === 'string' ? data.messageId : m.serverId,
+          } : m.id === userMsg.id && typeof data.userMessageId === 'string' ? {
+            // Com o id real, esta pergunta passa a poder ser editada ou regenerada
+            ...m, serverId: data.userMessageId,
           } : m))
           setIsStreaming(false)
           setStreamStatus(null)
@@ -976,6 +995,49 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     setCaret(antes.length + file.length + 2)
     inputRef.current?.focus()
   }
+
+  /**
+   * Editar e regenerar: a conversa é cortada no servidor a partir da mensagem
+   * do usuário (ela e tudo depois saem) e o texto é reenviado pelo caminho
+   * normal do chat — o mesmo comportamento do Claude e do ChatGPT.
+   *
+   * Só roda com o id REAL da mensagem no servidor; sem ele não há como saber
+   * onde cortar, e os botões nem aparecem.
+   */
+  const autoSendRef = useRef(false)
+  const refazerAPartirDe = useCallback(async (pergunta: Message, texto: string) => {
+    if (!conversationId || !pergunta.serverId || isStreaming) return
+    try {
+      await apiPost('/api/conversations', { action: 'truncate', id: conversationId, fromMessageId: pergunta.serverId })
+    } catch (e) {
+      toast.error(`Não consegui refazer: ${(e as Error).message}`)
+      return
+    }
+    setMessages(prev => {
+      const i = prev.findIndex(m => m.id === pergunta.id)
+      return i < 0 ? prev : prev.slice(0, i)
+    })
+    autoSendRef.current = true
+    setInput(texto)
+  }, [conversationId, isStreaming])
+
+  // Dispara o envio quando o texto refeito já está no campo
+  useEffect(() => {
+    if (!autoSendRef.current || !input.trim()) return
+    autoSendRef.current = false
+    void sendMessage()
+  }, [input, sendMessage])
+
+  const editarMensagem = useCallback((msg: Message, texto: string) => {
+    void refazerAPartirDe(msg, texto)
+  }, [refazerAPartirDe])
+
+  const regenerarResposta = useCallback((resposta: Message) => {
+    const i = messages.findIndex(m => m.id === resposta.id)
+    const pergunta = i > 0 ? messages[i - 1] : undefined
+    if (!pergunta || pergunta.role !== 'user') return
+    void refazerAPartirDe(pergunta, pergunta.content)
+  }, [messages, refazerAPartirDe])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1287,6 +1349,14 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
                     msg={msg}
                     onCopy={copyToClipboard}
                     streaming={isStreaming && i === messages.length - 1 && msg.role === 'assistant'}
+                    // Editar: pergunta já gravada no servidor, fora de uma resposta em curso
+                    onEdit={msg.role === 'user' && msg.serverId && conversationId && !isStreaming ? editarMensagem : undefined}
+                    // Regenerar: só a última resposta, e só se a pergunta dela tem id real
+                    onRegenerate={
+                      msg.role === 'assistant' && i === messages.length - 1 && !isStreaming && conversationId
+                        && messages[i - 1]?.role === 'user' && messages[i - 1]?.serverId
+                        ? regenerarResposta : undefined
+                    }
                   />
                 </motion.div>
               ))}

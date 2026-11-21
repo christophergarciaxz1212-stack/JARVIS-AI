@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
       request: String(body.request || ''),
       teamId: body.teamId || undefined,
       options: sanitizeOptions(body.options),
+      kind: body.kind === 'chat' ? 'chat' : undefined,
     })
     return Response.json({ run: ctrl.run })
   } catch (e) {

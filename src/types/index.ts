@@ -19,6 +19,12 @@ export interface Message {
   reasoning?: string
   /** Measured by the client while streaming: first visible token and whole answer, in ms. */
   stats?: { firstMs?: number; totalMs?: number }
+  /**
+   * Id desta mensagem no servidor. O id local é gerado pelo navegador e não
+   * existe no armazenamento; editar e regenerar só são oferecidos quando este
+   * campo é conhecido, para nunca cortar a conversa no ponto errado.
+   */
+  serverId?: string
 }
 
 export interface Conversation {

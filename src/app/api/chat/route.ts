@@ -113,6 +113,8 @@ function engineCommandResponse(opts: {
   run?: () => Promise<string | null>
   conversationId: string
   assistantMsgId: string
+  /** Id da mensagem do usuário já gravada, devolvido ao cliente no "done". */
+  userMsgId?: string
   userText: string
   firstMessage: boolean
   /** Rótulo gravado como modelo na mensagem (padrão: ENGINE_MODEL). */
@@ -143,7 +145,7 @@ function engineCommandResponse(opts: {
         if (opts.firstMessage) {
           updateConversationTitle(opts.conversationId, opts.userText.slice(0, 60) + (opts.userText.length > 60 ? '...' : ''))
         }
-        send({ type: 'done', conversationId: opts.conversationId, messageId: opts.assistantMsgId, model: opts.model || ENGINE_MODEL })
+        send({ type: 'done', conversationId: opts.conversationId, messageId: opts.assistantMsgId, userMessageId: opts.userMsgId, model: opts.model || ENGINE_MODEL })
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Erro no Skill Engine'
         try {
@@ -227,7 +229,7 @@ export async function POST(req: NextRequest) {
       const firstMessage = getMessages(conversationId).length === 0
       savePendingContext(conversationId)
       addMessage({ id: userMsgId, conversationId, role: 'user', content: userText })
-      return engineCommandResponse({ command: engineCommand || undefined, run: hubRunner || undefined, conversationId, assistantMsgId, userText, firstMessage })
+      return engineCommandResponse({ command: engineCommand || undefined, run: hubRunner || undefined, conversationId, assistantMsgId, userMsgId, userText, firstMessage })
     }
 
     // Mensagem com imagem anexada e sem comando reconhecido: análise multimodal (Gemini)
@@ -256,6 +258,7 @@ export async function POST(req: NextRequest) {
         },
         conversationId,
         assistantMsgId,
+        userMsgId,
         userText,
         firstMessage,
         model: 'gemini|vision',
@@ -453,6 +456,9 @@ export async function POST(req: NextRequest) {
                     type: 'done',
                     conversationId,
                     messageId: assistantMsgId,
+                    // O id real da mensagem do usuário: é por ele que editar e
+                    // regenerar acham o ponto certo da conversa no servidor.
+                    userMessageId: userMsgId,
                     model: candidate,
                     usage: finalUsage,
                     elapsedMs: Date.now() - startedAt,
