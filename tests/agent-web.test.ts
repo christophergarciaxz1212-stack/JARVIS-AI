@@ -86,3 +86,28 @@ describe('busca e leitura reais', () => {
     expect(page.url).toMatch(/^https:/)
   }, 60_000)
 })
+
+describe('web_fetch não alcança a própria máquina nem a rede local', () => {
+  it('reconhece endereços internos', async () => {
+    const { isInternalHost } = await import('@/lib/agents/web')
+    for (const h of [
+      'localhost', 'app.localhost', 'impressora.local', '127.0.0.1', '127.1.2.3',
+      '0.0.0.0', '10.0.0.5', '192.168.1.10', '172.16.0.1', '172.31.255.254',
+      '169.254.169.254', '::1', 'fe80::1', 'fd00::1',
+    ]) expect(isInternalHost(h), h).toBe(true)
+  })
+
+  it('não confunde endereços públicos com internos', async () => {
+    const { isInternalHost } = await import('@/lib/agents/web')
+    for (const h of [
+      'exemplo.com', 'pt.wikipedia.org', '8.8.8.8', '1.1.1.1',
+      '172.32.0.1', '172.15.0.1', '192.169.0.1', '11.0.0.1',
+    ]) expect(isInternalHost(h), h).toBe(false)
+  })
+
+  it('recusa a busca e explica o que usar no lugar', async () => {
+    await expect(webFetch('http://127.0.0.1:3001/api/chat')).rejects.toThrow('read_file')
+    await expect(webFetch('http://169.254.169.254/latest/meta-data/')).rejects.toThrow('rede local')
+    await expect(webFetch('http://localhost:3001/api/providers')).rejects.toThrow('própria máquina')
+  })
+})

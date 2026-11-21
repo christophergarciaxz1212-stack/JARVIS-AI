@@ -92,7 +92,12 @@ export default function TerminalPanel({ cwd }: { cwd?: string }) {
 
   const interromper = async () => {
     if (!activeId) return
-    try { await api({ action: 'interrupt', id: activeId }) } catch (e) { toast.error((e as Error).message) }
+    try {
+      // O servidor devolve quantos processos pararam de verdade; se nenhum,
+      // o aviso já aparece na saída e não damos a operação como feita.
+      const d = await api<{ killed: number }>({ action: 'interrupt', id: activeId })
+      if (d.killed > 0) toast.success(d.killed === 1 ? 'Processo interrompido' : `${d.killed} processos interrompidos`)
+    } catch (e) { toast.error((e as Error).message) }
   }
 
   const fechar = async (id: string) => {

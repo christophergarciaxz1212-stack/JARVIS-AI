@@ -151,3 +151,36 @@ describe('segurança', () => {
     expect(() => writeTerminal('nao-existe', 'ls')).toThrow('Terminal não encontrado')
   })
 })
+
+describe('interromper', () => {
+  it('mata o programa que está rodando e a sessão continua viva', async () => {
+    const t = createTerminal()
+    // Um processo externo de verdade, que imprime sem parar
+    writeTerminal(t.id, 'node -e "setInterval(()=>console.log(\'rodando\'),300)"')
+    await esperaSaida(t.id, /rodando/)
+
+    const mortos = await getTerminal(t.id)!.interrupt()
+    expect(mortos).toBeGreaterThan(0)
+
+    // Parou mesmo. Espera o que já estava no buffer do pipe terminar de chegar
+    // antes de medir — senão, sob carga, uma linha atrasada parece "ainda vivo".
+    const conta = () => (getTerminal(t.id)!.history().map(c => c.text).join('').match(/rodando/g) || []).length
+    await sleep(1500)
+    const base = conta()
+    // O processo imprimia a cada 300ms: vivo, somaria ~10 linhas nesta janela.
+    await sleep(3000)
+    expect(conta()).toBe(base)
+
+    // E a sessão sobreviveu
+    writeTerminal(t.id, 'Write-Output "AINDA-VIVO"')
+    expect(await esperaSaida(t.id, /AINDA-VIVO/)).toContain('AINDA-VIVO')
+  }, 60_000)
+
+  it('sem programa rodando, diz que não havia o que interromper', async () => {
+    const t = createTerminal()
+    await sleep(1200)
+    expect(await getTerminal(t.id)!.interrupt()).toBe(0)
+    const avisos = getTerminal(t.id)!.history().filter(c => c.kind === 'aviso').map(c => c.text).join(' ')
+    expect(avisos).toContain('Nada para interromper')
+  }, 40_000)
+})

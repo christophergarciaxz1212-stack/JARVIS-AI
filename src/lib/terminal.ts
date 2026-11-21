@@ -14,7 +14,7 @@
  * cursor (barras de progresso saem como texto solto) e programas que só aceitam
  * entrada de um terminal real, como a senha do `ssh`.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { StringDecoder } from 'string_decoder'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
@@ -147,13 +147,31 @@ class TerminalSession {
     this.proc.stdin.write(line.endsWith('\n') ? line : `${line}\n`)
   }
 
-  /** Ctrl+C: interrompe o que está rodando sem derrubar a sessão. */
-  interrupt() {
-    if (!this.proc) return false
+  /**
+   * Interrompe o programa que a sessão está rodando, sem derrubar a sessão.
+   *
+   * Escrever `\x03` no stdin NÃO funciona sem PTY: no Windows o Ctrl+C é um
+   * evento de console, não um byte, e o processo simplesmente ignora (medido).
+   * O que funciona é matar os processos-filhos do shell — poupando o
+   * `conhost.exe`, que é infraestrutura do console: matá-lo derruba o shell.
+   *
+   * Devolve quantos processos foram encerrados. Zero significa que não havia
+   * programa externo rodando: ou a sessão está ociosa, ou o próprio shell está
+   * ocupado (um `Start-Sleep` na linha, por exemplo) e aí só fechando a sessão.
+   */
+  async interrupt(): Promise<number> {
+    const pid = this.proc?.pid
+    if (!pid) return 0
     this.lastUsedAt = Date.now()
-    this.proc.stdin.write('\x03')
-    this.push('aviso', '^C')
-    return true
+
+    const filhos = await childrenOf(pid)
+    if (!filhos.length) {
+      this.push('aviso', 'Nada para interromper: nenhum programa externo rodando. Se o próprio shell está ocupado, feche a sessão.')
+      return 0
+    }
+    for (const filho of filhos) killTree(filho)
+    this.push('aviso', `^C — ${filhos.length} processo(s) encerrado(s)`)
+    return filhos.length
   }
 
   close() {
@@ -163,6 +181,30 @@ class TerminalSession {
     this.proc = null
     this.listeners.clear()
   }
+}
+
+/**
+ * PIDs dos processos-filhos diretos de `pid`, sem o `conhost.exe`.
+ * O conhost é o host de console do próprio shell: encerrá-lo mata a sessão
+ * junto, que é o oposto do que "interromper" deve fazer.
+ */
+function childrenOf(pid: number): Promise<number[]> {
+  return new Promise(resolve => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command',
+        `Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid}" | ForEach-Object { "$($_.ProcessId) $($_.Name)" }`],
+      { windowsHide: true, timeout: 10_000 },
+      (_e, stdout) => {
+        const pids = String(stdout || '').trim().split(/\r?\n/)
+          .map(l => l.trim().split(/\s+/))
+          .filter(([, nome]) => nome && !/^conhost\.exe$/i.test(nome))
+          .map(([p]) => Number(p))
+          .filter(n => Number.isFinite(n) && n > 0)
+        resolve(pids)
+      },
+    )
+  })
 }
 
 interface Registry { sessions: Map<string, TerminalSession> }

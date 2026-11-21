@@ -94,7 +94,10 @@ export async function POST(req: NextRequest) {
       case 'interrupt': {
         const s = getTerminal(String(body.id || ''))
         if (!s) return fail('Terminal não encontrado', 404)
-        return Response.json({ ok: s.interrupt(), session: s.info() })
+        // `killed` é quantos processos realmente pararam — a interface diz a
+        // verdade em vez de afirmar que interrompeu sempre.
+        const killed = await s.interrupt()
+        return Response.json({ ok: killed > 0, killed, session: s.info() })
       }
 
       case 'close':

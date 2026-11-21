@@ -126,3 +126,25 @@ describe('configuração padrão', () => {
     expect(PERMISSION_MODES).toEqual(['restrito', 'supervisionado', 'autonomo'])
   })
 })
+
+describe('aliases de argumento não burlam a classificação', () => {
+  it('o alias "cmd" é classificado igual a "command"', async () => {
+    const { normalizeArgs } = await import('@/lib/agents/tools')
+
+    // Como o orquestrador faz: normaliza ANTES de classificar
+    const comAlias = normalizeArgs('run_command', { cmd: 'npm install pacote' })
+    expect(decide('run_command', comAlias, 'autonomo').allow).toBe(false)
+    expect(classifyTool('run_command', comAlias)).toBe('externo')
+
+    const destrutivo = normalizeArgs('run_command', { comando: 'Remove-Item -Recurse src' })
+    expect(classifyTool('run_command', destrutivo)).toBe('destrutivo')
+
+    // E o texto mostrado ao usuário deixa de vir vazio
+    expect(describeRequest('run_command', comAlias)).toBe('Executar: npm install pacote')
+  })
+
+  it('sem normalizar, o alias escaparia — por isso o orquestrador normaliza', () => {
+    // Documenta a armadilha: classificar o argumento cru subestima o risco
+    expect(classifyTool('run_command', { cmd: 'npm install pacote' })).toBe('comando')
+  })
+})

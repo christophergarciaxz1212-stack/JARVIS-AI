@@ -173,3 +173,44 @@ describe('cancelamento', () => {
     expect(ctrl.run.status).toBe('cancelled')
   }, 40_000)
 })
+
+describe('Plan Mode sobrevive a uma retomada', () => {
+  it('execução retomada volta a esperar aprovação, não executa direto', async () => {
+    const dir = tempProject()
+    const project = createProject('Plan retomada', dir)
+    const rt = runtime(writerModel())
+    const ctrl = startRun(rt, project.id, { permissionMode: 'autonomo', planFirst: true, maxSteps: 6, fixRounds: 0 })
+
+    await until(() => ctrl.run.status === 'awaiting_plan', 15_000)
+    expect(ctrl.run.tasks.length).toBeGreaterThan(0)
+
+    // Interrompe sem aprovar — é o que acontece quando o app é fechado
+    ctrl.cancel()
+    await ctrl.done
+    expect(fs.existsSync(path.join(dir, 'notas.txt'))).toBe(false)
+
+    // "Retomar": antes, como já havia tarefas, o portão era pulado e o plano
+    // rodava sem nunca ter sido aprovado.
+    const retomado = rt.resumeRun(ctrl.run.id)
+    await until(() => retomado.run.status === 'awaiting_plan', 15_000)
+    await sleep(300)
+    expect(fs.existsSync(path.join(dir, 'notas.txt'))).toBe(false)
+
+    // Só executa depois do aprovar
+    expect(retomado.approvePlan()).toBe(true)
+    await retomado.done
+    expect(fs.existsSync(path.join(dir, 'notas.txt'))).toBe(true)
+  }, 60_000)
+
+  it('plano já aprovado não pergunta de novo ao retomar', async () => {
+    const dir = tempProject()
+    const project = createProject('Plan aprovado antes', dir)
+    const rt = runtime(writerModel())
+    const ctrl = startRun(rt, project.id, { permissionMode: 'autonomo', planFirst: true, maxSteps: 6, fixRounds: 0 })
+
+    await until(() => ctrl.run.status === 'awaiting_plan', 15_000)
+    ctrl.approvePlan()
+    await ctrl.done
+    expect(ctrl.run.planApprovedAt).toBeGreaterThan(0)
+  }, 60_000)
+})

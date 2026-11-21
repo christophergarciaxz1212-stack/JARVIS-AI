@@ -10,7 +10,7 @@ import { budgetTier, estimateInputTokens, maxInputTokensFor } from '../ai/freeTi
 import { extractJson, parseAgentTurn } from './parse'
 import { agentFromRole, AUTO_TEAM_ROLES, getRole, ROLE_MAP } from './roles'
 import { Scheduler } from './scheduler'
-import { describeExtension, executeTool, lockOwner, TOOL_DOCS, TOOL_SPECS, type FinishResult, type ToolHost } from './tools'
+import { describeExtension, executeTool, lockOwner, normalizeArgs, TOOL_DOCS, TOOL_SPECS, type FinishResult, type ToolHost } from './tools'
 import { getEngine } from '../engine/engine'
 import { redact, deepRedact } from '../redact'
 import { decide as decidePermission, describeRequest, PERMISSION_LABELS } from './permissions'
@@ -162,12 +162,16 @@ export class RunController {
       if (!this.run.tasks.length) {
         this.setStatus('planning', 'Planejando e distribuindo tarefas')
         await this.plan()
-        // Plan Mode: investigou e planejou, mas não toca no projeto antes do "aprovar".
-        if (this.run.options.planFirst) await this.awaitPlanApproval()
       } else {
         // Resuming: tasks interrupted mid-flight start over
         for (const t of this.run.tasks) if (t.status === 'running') t.status = 'pending'
       }
+
+      // Plan Mode: investigou e planejou, mas não toca no projeto antes do
+      // "aprovar". Fora do if acima de propósito: uma execução retomada já tem
+      // tarefas, e antes disso o portão era pulado justamente na retomada —
+      // o plano rodava sem nunca ter sido aprovado.
+      if (this.run.options.planFirst && !this.run.planApprovedAt) await this.awaitPlanApproval()
       await this.resolveModels()
 
       this.setStatus('running', 'Agentes trabalhando')
@@ -224,10 +228,7 @@ export class RunController {
     // Só a decisão explícita do usuário tira a execução daqui: um despertar
     // de outra espera (uma aprovação de ferramenta antiga) não aprova o plano.
     while (this.planStillPending && !this.abort.signal.aborted) {
-      await new Promise<void>(resolve => {
-        this.decisionWaiters.push(resolve)
-        this.abort.signal.addEventListener('abort', () => resolve(), { once: true })
-      })
+      await this.waitForDecision(this.abort.signal)
     }
     if (!this.planApproved || this.abort.signal.aborted) throw abortError()
     this.setStatus('running', 'Plano aprovado — agentes trabalhando')
@@ -492,7 +493,13 @@ Formato:
         // Modo de permissão: o que é livre segue; o resto pede aprovação na conversa
         // ou é recusado pelo modo (Restrito), e o agente recebe o motivo como observação.
         const mode = this.run.options.permissionMode || 'supervisionado'
-        const verdict = decidePermission(action.tool, action.args, mode)
+        // Classifica sobre os MESMOS argumentos que serão executados: o
+        // executeTool normaliza aliases (run_command aceita "cmd", "comando",
+        // "script"), e classificar o argumento cru deixava um comando de
+        // instalação passar como simples "comando" — e o cartão de aprovação
+        // aparecia sem texto nenhum.
+        const argsReais = normalizeArgs(action.tool, action.args)
+        const verdict = decidePermission(action.tool, argsReais, mode)
         let approvedByUser = false
         if (!verdict.allow) {
           if (!verdict.needsApproval) {
@@ -503,7 +510,7 @@ Formato:
             observations.push(`### ${action.tool} → RECUSADO: ${verdict.reason}`)
             continue
           }
-          const approved = await this.askApproval(agent, task, action.tool, action.args, verdict.risk, signal)
+          const approved = await this.askApproval(agent, task, action.tool, argsReais, verdict.risk, signal)
           if (!approved) {
             if (signal.aborted || this.abort.signal.aborted) throw abortError()
             observations.push(`### ${action.tool} → NEGADO pelo usuário. Não repita este pedido; siga por outro caminho ou finalize explicando o que ficou pendente.`)
@@ -1077,10 +1084,7 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
         this.persistNow()
         return false
       }
-      await new Promise<void>(resolve => {
-        this.decisionWaiters.push(resolve)
-        signal.addEventListener('abort', () => resolve(), { once: true })
-      })
+      await this.waitForDecision(signal)
     }
     return req.status === 'approved'
   }
@@ -1104,6 +1108,7 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
   approvePlan() {
     if (this.run.status !== 'awaiting_plan' || this.planDecision !== 'pending') return false
     this.planDecision = 'approved'
+    this.run.planApprovedAt = Date.now()
     this.emit('plan_approved', 'Plano aprovado pelo usuário — iniciando a execução')
     this.releaseDecisionWaiters()
     return true
@@ -1116,6 +1121,28 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
     this.emit('plan_rejected', 'Plano recusado pelo usuário — nada foi alterado no projeto')
     this.cancel()
     return true
+  }
+
+  /**
+   * Espera um despertar: uma decisão do usuário ou o cancelamento.
+   *
+   * O listener de abort é removido ao fim de CADA espera. Antes ele era
+   * registrado com `{ once: true }` a cada volta do laço e só sairia se o abort
+   * disparasse — como toda decisão acorda todos os que esperam, um agente
+   * parado acumulava um listener por despertar até o Node reclamar.
+   */
+  private waitForDecision(signal: AbortSignal): Promise<void> {
+    return new Promise<void>(resolve => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        signal.removeEventListener('abort', finish)
+        resolve()
+      }
+      this.decisionWaiters.push(finish)
+      signal.addEventListener('abort', finish)
+    })
   }
 
   private releaseDecisionWaiters() {

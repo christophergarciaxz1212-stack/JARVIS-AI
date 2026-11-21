@@ -274,6 +274,12 @@ export interface Run {
   scopeRequests: ScopeRequest[]
   /** Aprovações de ferramenta pedidas ao usuário (execuções antigas podem não ter o campo). */
   approvals?: ApprovalRequest[]
+  /**
+   * Quando o usuário aprovou o plano no Plan Mode. Fica no run (e não só na
+   * memória do controlador) porque uma execução retomada precisa lembrar que
+   * ainda NÃO foi aprovada — senão o portão seria pulado na retomada.
+   */
+  planApprovedAt?: number
   decisions: string[]
   report?: string
   error?: string

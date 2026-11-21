@@ -152,6 +152,33 @@ export function htmlToText(html: string): string {
     .join('\n')
 }
 
+/**
+ * Endereços que o `web_fetch` não busca: a própria máquina, a rede local e o
+ * serviço de metadados das nuvens.
+ *
+ * O agente escolhe URLs a partir de buscas e de páginas que leu, e uma página
+ * pode trazer instrução injetada. A requisição sai do servidor Node, sem Origin
+ * nem sec-fetch-site, então o middleware de CSRF do JARVIS a aceitaria: sem
+ * esta barreira, bastava uma página pedir `http://127.0.0.1:3001/api/...` para
+ * a própria API do JARVIS ser lida de dentro.
+ */
+export function isInternalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true
+  if (h === '::1' || h === '0.0.0.0') return true
+  // IPv6 local: ::1, fc00::/7 (único/local), fe80::/10 (link-local)
+  if (/^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h)) return true
+
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  if (!v4) return false
+  const [a, b] = v4.slice(1).map(Number)
+  if (a === 127 || a === 0 || a === 10) return true           // loopback, "este host", privada
+  if (a === 192 && b === 168) return true                      // privada
+  if (a === 172 && b >= 16 && b <= 31) return true             // privada
+  if (a === 169 && b === 254) return true                      // link-local e metadados de nuvem
+  return false
+}
+
 export interface PageContent {
   url: string
   title: string
@@ -170,6 +197,9 @@ export async function webFetch(rawUrl: string, opts: { signal?: AbortSignal } = 
     throw new Error('Endereço inválido')
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Só endereços http e https')
+  if (isInternalHost(url.hostname)) {
+    throw new Error(`"${url.hostname}" é um endereço da própria máquina ou da rede local — web_fetch só busca na internet pública. Para ler um arquivo do projeto use read_file.`)
+  }
 
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT)

@@ -18,8 +18,29 @@ type Manifest = Record<string, boolean>
 
 const manifestPath = (dir: string) => path.join(dir, 'manifest.json')
 
+/**
+ * Lê o manifesto do snapshot.
+ *
+ * Arquivo ausente significa de verdade "esta execução não tocou em nada".
+ * Arquivo ilegível NÃO significa isso: devolver `{}` faria o JARVIS afirmar que
+ * nada mudou e esconderia o Desfazer de alterações que existem no disco. Mesma
+ * regra do `readJson` em fsutil — quem chama não pode "começar vazio" calado.
+ */
 function readManifest(dir: string): Manifest {
-  try { return JSON.parse(fs.readFileSync(manifestPath(dir), 'utf-8')) } catch { return {} }
+  let bruto: string
+  try {
+    bruto = fs.readFileSync(manifestPath(dir), 'utf-8')
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw new Error(`Não consegui ler o registro de alterações desta execução: ${(e as Error).message}`)
+  }
+  try {
+    const parsed = JSON.parse(bruto)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('formato inesperado')
+    return parsed as Manifest
+  } catch (e) {
+    throw new Error(`O registro de alterações desta execução está corrompido (${(e as Error).message}). Os originais continuam em ${path.join(dir, 'files')}.`)
+  }
 }
 
 /** Lê um arquivo de texto; devolve null quando não existe. */
@@ -46,7 +67,14 @@ export function runChanges(run: Pick<Run, 'sessionId' | 'id' | 'projectPath'>): 
   const files: FileDiff[] = []
 
   for (const rel of Object.keys(manifest)) {
-    const d = diffFor(run.projectPath, dir, manifest, rel)
+    let d: FileDiff
+    try {
+      d = diffFor(run.projectPath, dir, manifest, rel)
+    } catch {
+      // Caminho que não resolve mais (projeto movido, entrada antiga): pula só
+      // este, em vez de derrubar o diff de todos os outros arquivos.
+      continue
+    }
     // Arquivo já revertido (ou devolvido ao original à mão) não é mais alteração.
     if (d.added === 0 && d.removed === 0 && !d.binary) continue
     files.push(d)
