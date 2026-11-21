@@ -1,6 +1,10 @@
 import type { PadSpec, SfxEvent, WordTime } from './audio'
 import type { KitStyle } from './kit'
-import type { VoiceSelection } from '../video/types'
+/** Voz da narração: 'edge' (grátis, natural), 'gemini' (já usada no chat), 'windows' (offline). */
+export interface VoiceSelection {
+  provider: 'edge' | 'gemini' | 'windows'
+  id: string
+}
 
 /**
  * Modelos do motor de animação: as 4 variações do "modelo dos vídeos" (explicadores de tecnologia no

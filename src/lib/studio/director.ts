@@ -53,16 +53,23 @@ function pedido(b: DirectorBrief): string {
   const base = `Pedido: ${b.prompt}
 
 Formato: ${formato}. Duração alvo: ${b.seconds} segundos.
-Faça exatamente ${b.scenes} cenas. A narração inteira deve ter cerca de ${b.words} palavras (divida entre as cenas).`
+${b.previous && b.feedback ? `Faça ${b.scenes} cenas, a menos que o usuário peça para excluir, duplicar ou mover cenas — aí siga o pedido.` : `Faça exatamente ${b.scenes} cenas.`} A narração inteira deve ter cerca de ${b.words} palavras (divida entre as cenas).`
   if (!b.previous || !b.feedback) return base
+  // Duração nova pede fala nova: sem isso o modelo mantém o texto e o vídeo não encurta
+  const atuais = narrationWords(b.previous)
+  const cabe = atuais > b.words * 1.15
+    ? `\n\nA DURAÇÃO MUDOU: a narração atual tem ${atuais} palavras e agora precisa ter cerca de ${b.words}. Reescreva as falas mais curtas, mantendo o sentido. A duração alvo de ${b.seconds} segundos vale mais que qualquer duração citada no pedido original.`
+    : atuais < b.words * 0.7
+      ? `\n\nA DURAÇÃO MUDOU: a narração atual tem ${atuais} palavras e agora precisa ter cerca de ${b.words}. Desenvolva as falas para preencher o tempo. A duração alvo de ${b.seconds} segundos vale mais que qualquer duração citada no pedido original.`
+      : ''
   return `${base}
 
 ESTA É UMA REVISÃO. Plano atual:
 ${JSON.stringify(b.previous)}
 
-O que o usuário pediu para mudar: ${b.feedback}
+O que o usuário pediu para mudar: ${b.feedback}${cabe}
 
-Mude só o que foi pedido e mantenha o resto igual (mesmas cenas, mesma fala, mesmas imagens), a menos que a mudança exija o contrário.`
+Mude só o que foi pedido e mantenha o resto igual (mesmas cenas, mesmas imagens), a menos que a mudança exija o contrário.`
 }
 
 /** Modelos para o roteiro, do melhor para o pior, só os gratuitos e conectados. */
@@ -102,7 +109,7 @@ export async function direct(b: DirectorBrief, signal?: AbortSignal): Promise<Di
         // Fala longa demais estoura a duração pedida: uma passada para enxugar,
         // mantendo cenas, imagens e direção. Se não melhorar, fica o original.
         const palavras = narrationWords(plan)
-        if (palavras > b.words * 1.3) {
+        if (palavras > b.words * 1.15) {
           try {
             const r2 = await defaultComplete(model, [
               ...messages,

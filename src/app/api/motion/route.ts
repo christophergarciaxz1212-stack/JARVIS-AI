@@ -4,7 +4,7 @@ import { Readable } from 'stream'
 import { NextRequest } from 'next/server'
 import { findBrowser } from '@/lib/motion/chrome'
 import { cancelJob, createJob, deleteJob, getJob, jobDir, listJobs, recoverJobs } from '@/lib/motion/jobs'
-import { downloadDisposition } from '@/lib/video/download'
+import { downloadDisposition } from '@/lib/media/download'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'

@@ -21,9 +21,9 @@ export function extractAllTags(content: string): {
   imageJobs: string[]
 } {
   const videoResult = extractVideoTags(content)
-  const imageResult = extractImageTags(content)
+  const imageResult = extractImageTags(videoResult.clean)
   return {
-    clean: videoResult.clean,
+    clean: imageResult.clean,
     videoJobs: videoResult.videoJobs,
     imageJobs: imageResult.imageJobs,
   }

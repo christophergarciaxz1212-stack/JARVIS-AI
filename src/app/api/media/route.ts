@@ -1,34 +1,18 @@
 import fs from 'fs'
 import path from 'path'
-import { Readable } from 'stream'
 import { NextRequest } from 'next/server'
 import { generateImage, generateImages, imageFile, listImages, providerStatus, editImage, type Aspect, type ImageProviderId } from '@/lib/media/images'
 import { dataDir, readJson, writeJsonAtomic } from '@/lib/agents/fsutil'
-import { cancelVideoJob, createVideoJob, deleteVideoJob, getVideoJob, getVideoManifest, listVideoJobs, recoverVideoJobs, regenerateVideoJob, saveVideoScript, videoDir, videoJobDir } from '@/lib/video/produce'
-import { findBrowser } from '@/lib/motion/chrome'
-import { VIDEO_FORMATS } from '@/lib/video/formats'
-import { listNarrationVoices } from '@/lib/video/edgeTts'
-import { GEMINI_VOICES } from '@/lib/voice/gemini'
-import { MOOD_LABELS } from '@/lib/video/audioMix'
 
 const ASPECTS: Aspect[] = ['1:1', '9:16', '16:9', '4:5', '3:2', '2:3']
 
-const FILES = /^(video\.mp4|audio\.wav|narracao\.wav|legendas\.srt|legendas\.vtt|previa_\d{5}\.jpg|cena_\d{2}\.jpg|script\.json|qa\.json)$/
-const TYPES: Record<string, string> = {
-  '.mp4': 'video/mp4', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.srt': 'application/x-subrip', '.vtt': 'text/vtt',
-  '.jpg': 'image/jpeg', '.json': 'application/json',
-}
-let recovered = false
 
-const web = (s: fs.ReadStream) => Readable.toWeb(s) as unknown as ReadableStream<Uint8Array>
 const fail = (e: unknown, status = 400) => Response.json({ error: e instanceof Error ? e.message : String(e) }, { status })
 
 export async function GET(req: NextRequest) {
-  if (!recovered) { recovered = true; recoverVideoJobs() }
   const sp = new URL(req.url).searchParams
   try {
     switch (sp.get('action') || 'list') {
-      case 'list': return Response.json({ jobs: listVideoJobs().slice(0, 60), browser: !!findBrowser(), formats: VIDEO_FORMATS, musicMoods: MOOD_LABELS })
       case 'image': {
         const id = String(sp.get('id') || '')
         if (!id) return Response.json({ images: listImages() })
@@ -64,18 +48,6 @@ export async function POST(req: NextRequest) {
   try { body = await req.json() } catch {}
   try {
     switch (String(body.action || '')) {
-      case 'create': return Response.json({ job: createVideoJob(body as never) })
-      case 'cancel': cancelVideoJob(String(body.id)); return Response.json({ ok: true })
-      case 'delete': deleteVideoJob(String(body.id)); return Response.json({ ok: true })
-      case 'saveScript': {
-        const id = String(body.id)
-        return Response.json({ script: saveVideoScript(id, Array.isArray(body.scenes) ? body.scenes as never : []) })
-      }
-      case 'regenerate': {
-        const id = String(body.id)
-        const scene = body.scene === undefined ? undefined : Number(body.scene)
-        return Response.json({ job: regenerateVideoJob(id, Number.isFinite(scene) ? scene : undefined) })
-      }
       case 'generate': {
         const aspect = ASPECTS.find(a => a === body.aspect)
         const provider = (['auto', 'gemini', 'pollinations'] as const).find(p => p === body.provider) as 'auto' | ImageProviderId | undefined

@@ -2,7 +2,10 @@ import fs from 'fs'
 import { createJob } from '../motion/jobs'
 import { generateImages, parseImageRequest, listImages, imageFile, editImage, saveGalleryImage } from './images'
 import { getPrefs } from '../prefs'
-import { decideVideo, planFromKind, KIND_LABEL, type VideoKind, type VideoPlan } from '../video/decide'
+import { createStudioJob, listStudioJobs, reviseStudioJob } from '../studio/producer'
+import { decideEngine, latestStudioJob, looksLikeRevision, type VideoEngine } from '../studio/chat'
+import { decideFormat } from '../studio/plan'
+import type { StudioJob, StudioRequest } from '../studio/types'
 
 /** Anexo de imagem desacoplado da camada HTTP (rota passa nome/mime/bytes). */
 export interface CommandAttachment { name: string; mimeType: string; data: Buffer }
@@ -75,51 +78,46 @@ const VIDEO = /^\s*(?:jarvis[\s,:]*)?(?:por favor[\s,]*)?(?:crie|cria|criar|gere
 const VIDEO_RESTYLE = /^\s*(?:jarvis[\s,:]*)?(?:refaca|refaz|refazer|faca|faz|agora|quero|transforma|transforme|muda|mude|troca|troque)\b[^\n]{0,40}?\b(?:em|como|no estilo|estilo|para|pra|versao)\s+(?:de\s+|um\s+)?(animado|motion|publicitario|comercial)\b\s*[.!]?\s*$/i
 const IMAGE = /^\s*(?:jarvis[\s,:]*)?(?:por favor[\s,]*)?(?:gere|gera|crie|cria|desenhe|desenha|faca|faz|me faz|me faca|ilustre)\s+(?:uma|um|[2-4]|duas|tres|quatro)?\s*(?:imagem|imagens|fotos?|ilustracao|ilustracoes|desenhos?|artes?|wallpaper|papel de parede|logo|logotipo|variacoes)\b[\s,:]*(?:de|do|da|sobre|com|mostrando)?\s*([\s\S]*)$/i
 
-/** Recognises "crie um vídeo sobre…" / "gere uma imagem de…"; the runner does the work inside the chat stream. */
-/**
- * Qual dos 3 modelos do Estúdio atende o pedido de vídeo:
- * - publicitario: campanha/filme de marca, institucional, cinematográfico;
- * - comercial: vender um produto/app (anúncio, propaganda, oferta, "baixe", "compre");
- * - videos (padrão): explicadores no estilo TikTok — ferramentas, notícias, dados, analogias, tutoriais.
- */
-export function videoModelFor(brief: string): 'videos' | 'comercial' | 'publicitario' {
-  const t = brief.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-  if (/\b(publicit\w*|campanha|filme (da|de|para a|pra) (marca|empresa)|institucional|cinematogr\w*|brand ?film|branding)\b/.test(t)) return 'publicitario'
-  if (/\b(comercial|propaganda|anuncio|promo\w*|vend\w*|oferta|desconto|compre|baixe|lancamento do (meu |nosso )?(app|produto)|produto)\b/.test(t)) return 'comercial'
-  return 'videos'
+/** Opções que o pedido já diz ("sem narração", "720p", "sem música"). */
+function studioOptions(text: string): Partial<StudioRequest> {
+  const t = strip(text)
+  const o: Partial<StudioRequest> = {}
+  if (/\bsem (voz|narra\w*|locu\w*)/.test(t)) o.narration = false
+  if (/\bsem (musica|trilha)/.test(t)) o.music = 'nenhuma'
+  if (/\bsem legendas?\b/.test(t)) o.captions = false
+  if (/\b720p?\b/.test(t)) o.quality = '720p'
+  return o
 }
 
-/** Cria o vídeo no motor certo e devolve a resposta do chat com o cartão ao vivo ([[motion:]] ou [[video:]]). */
-async function startVideo(brief: string, fullText: string, p: VideoPlan): Promise<string> {
+const fmtDur = (s: number) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`)
+
+/** Cria o vídeo no motor certo e devolve a resposta do chat com o cartão ao vivo ([[video:]] ou [[motion:]]). */
+async function startVideo(brief: string, fullText: string, e: VideoEngine, images?: string[]): Promise<string> {
+  if (e.engine === 'studio') {
+    const job = createStudioJob({ prompt: brief, ...studioOptions(fullText), images })
+    const f = decideFormat(job.request)
+    const voz = job.request.narration === false ? 'sem narração' : 'narração em português'
+    return `🎬 **Produzindo:** “${brief.slice(0, 120)}”\n\n${f.aspect} · ${f.width}×${f.height} · cerca de ${fmtDur(f.seconds)} · ${f.scenes} cenas · ${voz}. O diretor escreve o roteiro e a direção de arte; depois vêm as imagens, a narração, a trilha, a montagem com legendas e o render. Acompanhe as etapas no cartão abaixo. Quando terminar, peça ajustes do jeito que quiser: “troque a voz”, “deixe com 30s”, “imagem nova na cena 2”.\n\n[[video:${job.id}]]`
+  }
   const url = brief.match(/https?:\/\/\S+/)?.[0]
   const secs = Number(fullText.match(/(\d{1,3})\s*(?:s\b|seg|segundos)/i)?.[1]) || (/(\d)\s*min/i.test(fullText) ? Number(fullText.match(/(\d)\s*min/i)![1]) * 60 : undefined)
-  const female = /feminina|feminino|mulher/i.test(fullText)
+  const female = /feminina|feminino|mulher|narradora|locutora/i.test(fullText)
   const voice = { provider: 'edge' as const, id: female ? 'pt-BR-FranciscaNeural' : 'pt-BR-AntonioNeural' }
   const wantsVoice = !/sem (voz|narra|locu)/i.test(fullText)
-  const why = p.unsupported
-    ? `\n\n> **Modelo: ${p.label}** — vídeos ${p.unsupported} montados com imagens foram desativados a seu pedido; fiz no seu modelo animado.`
-    : `\n\n> **Modelo: ${p.label}** — ${p.reason}.`
-  if (p.engine === 'cinema') {
-    const { createVideoJob } = await import('../video/produce')
-    // Publicitário: vertical quando pedido, senão horizontal
-    const vertical = /vertical|reels?|tiktok|shorts|9:16|stories/i.test(fullText)
-    const job = createVideoJob({
-      prompt: brief,
-      formatId: vertical ? 'shorts' : 'youtube',
-      seconds: Math.max(10, Math.min(90, secs ?? 30)),
-      fps: 30,
-      narration: wantsVoice ? 'auto' : 'none',
-      voice,
-      music: 'nenhum',
-      look: p.look,
-    })
-    return `🎬 **Vídeo ${p.label.toLowerCase()} iniciado:** “${brief.slice(0, 120)}”\n\nDiretor → Roteirista → Designer → Diretor de Áudio → Editor → Revisor: roteiro cena a cena, imagens no visual ${p.label.toLowerCase()}, movimento de câmera, narração, efeitos e legendas — tudo aqui na conversa. Costuma levar de 2 a 6 minutos.${why}\n\n[[video:${job.id}]]`
-  }
   const prefs = getPrefs()
-  const comercial = p.motionStyle === 'app-promo'
-  const job = createJob({ prompt: brief, brandUrl: url, seconds: Math.min(60, secs ?? (comercial ? 20 : 30)), fps: prefs.motion.fps, style: p.motionStyle || 'auto', narration: wantsVoice ? 'jarvis' : 'none', voice: wantsVoice ? voice : undefined })
-  // O cartão na conversa mostra o progresso ao vivo e, no fim, o vídeo para assistir/baixar
-  return `🎬 **${comercial ? 'Comercial animado' : 'Vídeo animado'} iniciado:** “${brief.slice(0, 120)}”\n\nEscrevo o roteiro, programo a animação quadro a quadro (vertical 1080×1920, ${job.request.fps} fps)${comercial ? '' : ' no visual que mais combina com o tema (passos, notícia, dados ou analogia)'}, testo os quadros${job.request.narration === 'jarvis' ? ` e gravo a narração (voz ${voice.id.replace(/^pt-BR-|Neural$/g, '')} do Edge)` : ''} e monto o MP4 com legenda — tudo aqui na conversa. Costuma levar de 1 a 4 minutos.${why}\n\n[[motion:${job.id}]]`
+  const comercial = e.style === 'app-promo'
+  const job = createJob({ prompt: brief, brandUrl: url, seconds: Math.min(60, secs ?? (comercial ? 20 : 30)), fps: prefs.motion.fps, style: e.style, narration: wantsVoice ? 'jarvis' : 'none', voice: wantsVoice ? voice : undefined })
+  return `🎬 **${e.label} iniciado:** “${brief.slice(0, 120)}”\n\nEscrevo o roteiro, programo a animação quadro a quadro (vertical 1080×1920, ${job.request.fps} fps)${comercial ? '' : ' no visual que mais combina com o tema (passos, notícia, dados ou analogia)'}, testo os quadros${job.request.narration === 'jarvis' ? ` e gravo a narração (voz ${voice.id.replace(/^pt-BR-|Neural$/g, '')} do Edge)` : ''} e monto o MP4 com legenda — tudo aqui na conversa. Costuma levar de 1 a 4 minutos.\n\n> **Modelo: ${e.label}** — ${e.reason}. Para o vídeo com imagens, câmera, narração e trilha, peça sem “animado”.\n\n[[motion:${job.id}]]`
+}
+
+/** O vídeo que a frase quer ajustar: o citado pelo título (“…”), senão o último. */
+function revisionTarget(text: string, jobs: StudioJob[]): StudioJob | undefined {
+  const citado = /[“"]([^”"]{3,120})[”"]/.exec(text)?.[1]
+  if (citado) {
+    const alvo = jobs.find(j => j.title && strip(j.title) === strip(citado))
+    if (alvo) return alvo
+  }
+  return latestStudioJob(jobs)
 }
 
 export function mediaCommandRunner(message: string, attachments: CommandAttachment[] = []): (() => Promise<string>) | null {
@@ -129,43 +127,26 @@ export function mediaCommandRunner(message: string, attachments: CommandAttachme
   const text = message.trim()
   const s = strip(text)
   if (text.length > 1500) return null
-  const edit = matchVideoEditCommand(text)
-  if (edit) {
-    const scene = edit.scene
-    return async () => {
-      const { listVideoJobs, regenerateVideoJob } = await import('../video/produce')
-      const latest = listVideoJobs()[0]
-      if (!latest) return '🎬 Ainda não há nenhum vídeo para ajustar. Peça um primeiro: “crie um vídeo sobre…”.'
-      try {
-        const job = regenerateVideoJob(latest.id, scene === null ? undefined : scene - 1)
-        const titulo = latest.title || latest.request.prompt.slice(0, 60)
-        return scene === null
-          ? `🔄 **Vídeo “${titulo}” em regeração** a partir do roteiro salvo (cenas, narração e legendas).\n\n[[video:${job.id}]]`
-          : `🔄 **Cena ${scene} de “${titulo}”** ganhou uma imagem nova. O restante do vídeo é reutilizado (a narração não é regerada se o texto não mudou).\n\n[[video:${job.id}]]`
-      } catch (e) {
-        return `Não consegui regerar: ${(e as Error).message}`
+  // Ajuste do último vídeo do estúdio: "troque a voz", "deixe com 30s", "imagem nova na cena 2", "exclua a cena 3"…
+  const comandoDeCena = !!(matchVideoEditCommand(text) || matchScenePlanCommand(text))
+  if (comandoDeCena || (looksLikeRevision(text) && !VIDEO.test(s) && !VIDEO_RESTYLE.test(s))) {
+    const jobs = listStudioJobs()
+    const alvo = revisionTarget(text, jobs)
+    if (alvo) {
+      return async () => {
+        if (alvo.status === 'queued' || alvo.status === 'running') {
+          return `⏳ “${alvo.title || alvo.request.prompt.slice(0, 60)}” ainda está em produção. Quando o cartão mostrar o vídeo pronto, peça o ajuste de novo (ou cancele a produção no cartão).`
+        }
+        try {
+          const { job, summary } = reviseStudioJob(alvo.id, text)
+          const entendi = summary.length ? `Entendi: ${summary.join(' · ')}. ` : ''
+          return `🔄 **Ajustando “${alvo.title || 'o vídeo'}”.** ${entendi}O diretor mexe só no que você pediu; imagens de cenas iguais são reaproveitadas, e narração, trilha, legendas e render são refeitos.\n\n[[video:${job.id}]]`
+        } catch (e) {
+          return `Não consegui ajustar o vídeo: ${(e as Error).message}`
+        }
       }
     }
-  }
-  const plan = matchScenePlanCommand(text)
-  if (plan) {
-    return async () => {
-      const { listVideoJobs, moveVideoScene, deleteVideoScene, duplicateVideoScene, regenerateVideoJob } = await import('../video/produce')
-      const latest = listVideoJobs()[0]
-      if (!latest) return '🎬 Ainda não há nenhum vídeo para ajustar. Peça um primeiro: “crie um vídeo sobre…”.'
-      if (latest.status === 'running' || latest.status === 'queued') return '⏳ A produção em andamento ainda não terminou. Espere o vídeo ficar pronto antes de reorganizar as cenas.'
-      try {
-        if (plan.action === 'move') moveVideoScene(latest.id, plan.scene - 1, plan.to ?? 0)
-        else if (plan.action === 'delete') deleteVideoScene(latest.id, plan.scene - 1)
-        else duplicateVideoScene(latest.id, plan.scene - 1)
-        const job = regenerateVideoJob(latest.id)
-        const titulo = latest.title || latest.request.prompt.slice(0, 60)
-        const oq = plan.action === 'move' ? `Cena ${plan.scene} reposicionada` : plan.action === 'delete' ? `Cena ${plan.scene} excluída` : `Cena ${plan.scene} duplicada`
-        return `🎬 **${oq}** em “${titulo}” — narração, legendas e montagem refeitas a partir do novo roteiro:\n\n[[video:${job.id}]]`
-      } catch (e) {
-        return `Não consegui reorganizar: ${(e as Error).message}`
-      }
-    }
+    if (comandoDeCena) return async () => '🎬 Ainda não há nenhum vídeo recente para ajustar. Peça um primeiro: “crie um vídeo sobre…”.'
   }
   // ── Multimodal: edição / variação / vídeo-da-imagem (antes de qualquer outro executor)
   const lastGallery = attachments.length ? undefined : listImages()[0]
@@ -208,21 +189,13 @@ export function mediaCommandRunner(message: string, attachments: CommandAttachme
   }
   if (videoFromImage && (lastGallery || attachments.length)) {
     return async () => {
-      const { createVideoJob } = await import('../video/produce')
       const ref = attachments.length
         ? saveGalleryImage({ data: attachments[0].data, mimeType: attachments[0].mimeType, name: attachments[0].name })
         : lastGallery!
-      const job = createVideoJob({
-        prompt: `Vídeo produzido pelo JARVIS a partir da imagem enviada pelo usuário: ${(ref.prompt || 'cena enviada').slice(0, 300)}. A cena 1 é a imagem do usuário; as demais completam o roteiro visual com o mesmo estilo.`,
-        formatId: /vertical|reels?|tiktok|shorts|9:16/i.test(s) ? 'shorts' : 'youtube',
-        fps: 30,
-        seconds: 20,
-        narration: 'auto',
-        voice: { provider: 'edge', id: 'pt-BR-AntonioNeural' },
-        music: 'nenhum',
-        referenceImageId: ref.id,
-      })
-      return `🎬 **Vídeo a partir da sua imagem** — a primeira cena é ela mesma; o diretor de IA completa roteiro, narração, trilha e legendas:\n\n[[video:${job.id}]]`
+      const arquivo = imageFile(ref.id)?.file
+      if (!arquivo) return 'Não encontrei a imagem no disco. Anexe de novo para eu montar o vídeo.'
+      const brief = `${text}\n\nA primeira cena usa a imagem enviada pelo usuário (${(ref.prompt || 'imagem enviada').slice(0, 300)}); as demais seguem o mesmo estilo.`
+      return startVideo(brief, text, { engine: 'studio', label: 'Estúdio', reason: 'vídeo a partir da sua imagem' }, [arquivo])
     }
   }
 
@@ -231,17 +204,14 @@ export function mediaCommandRunner(message: string, attachments: CommandAttachme
   if (restyle) {
     const want = restyle[1].toLowerCase()
     return async () => {
-      const { listVideoJobs } = await import('../video/produce')
       const { listJobs } = await import('../motion/jobs')
-      const lastCinema = listVideoJobs()[0]
+      const lastStudio = listStudioJobs().sort((a, b) => b.createdAt - a.createdAt)[0]
       const lastMotion = listJobs().sort((a, b) => b.createdAt - a.createdAt)[0]
-      const last = !lastCinema ? lastMotion?.request.prompt : !lastMotion ? lastCinema.request.prompt
-        : (lastCinema.createdAt > lastMotion.createdAt ? lastCinema.request.prompt : lastMotion.request.prompt)
-      if (!last) return '🎬 Ainda não há vídeo para refazer. Peça um: “crie um vídeo sobre…”.'
-      const kind = (want === 'motion' ? 'animado' : want) as VideoKind
-      const p = planFromKind(kind, `você pediu ${KIND_LABEL[kind]?.toLowerCase() || kind}`)
-      if (!p) return 'Não entendi o modelo. Diga “refaça como animado”, “como comercial” ou “como publicitário”.'
-      return startVideo(last, last, p)
+      const ultimo = !lastStudio ? lastMotion : !lastMotion ? lastStudio : lastStudio.createdAt > lastMotion.createdAt ? lastStudio : lastMotion
+      const pedido = ultimo?.request.prompt
+      if (!pedido) return '🎬 Ainda não há vídeo para refazer. Peça um: “crie um vídeo sobre…”.'
+      if (want === 'animado' || want === 'motion') return startVideo(pedido, pedido, { engine: 'motion', style: 'auto', label: 'Animado (seu modelo dos vídeos)', reason: 'você pediu a versão animada' })
+      return startVideo(`${pedido} — em estilo publicitário, de campanha de marca`, pedido, { engine: 'studio', label: 'Estúdio', reason: 'você pediu a versão publicitária' })
     }
   }
 
@@ -250,8 +220,8 @@ export function mediaCommandRunner(message: string, attachments: CommandAttachme
     // Keep the user's original wording (accents) for the brief
     const brief = text.slice(text.length - v[1].length).trim()
     return async () => {
-      // Modelos do usuário: animado (padrão, estilo TikTok), comercial e publicitário (só se pedir)
-      return startVideo(brief, text, decideVideo(text))
+      // Estúdio por padrão; os modelos animados do usuário quando o pedido diz "animado"
+      return startVideo(brief, text, decideEngine(text))
     }
   }
   const im = IMAGE.exec(s)

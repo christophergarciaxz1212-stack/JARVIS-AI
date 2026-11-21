@@ -2,8 +2,7 @@ import http from 'http'
 import type { AddressInfo } from 'net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SR, Track } from '@/lib/motion/audio'
-import { mixStudio } from '@/lib/video/audioMix'
-import { videoModelFor } from '@/lib/media/commands'
+import { decideEngine } from '@/lib/studio/chat'
 import { guessKitStyle, syntaxExcerpt } from '@/lib/motion/compose'
 import { localIntent } from '@/lib/local/commands'
 import { leadScore, overpassQuery, waNumber, categoriesFrom } from '@/lib/local/places'
@@ -17,7 +16,6 @@ import path from 'path'
 
 /** Maior salto entre amostras vizinhas: ruído branco salta muito; um tom suave, pouco. */
 const maxJump = (pcm: Float32Array) => { let m = 0; for (let i = 1; i < pcm.length; i++) m = Math.max(m, Math.abs(pcm[i] - pcm[i - 1])); return m }
-const energy = (pcm: Float32Array, a: number, b: number) => { let s = 0; for (let i = Math.floor(a * SR); i < Math.min(pcm.length, b * SR); i++) s += pcm[i] * pcm[i]; return s }
 
 describe('áudio sem chiado: só voz e efeitos', () => {
   it('whoosh, rise e impact não usam ruído branco', () => {
@@ -28,25 +26,15 @@ describe('áudio sem chiado: só voz e efeitos', () => {
       expect(maxJump(t.buf), kind).toBeLessThan(0.06)
     }
   })
-  it('sem efeitos nem narração o vídeo é silêncio (nada de cama/zumbido de fundo)', () => {
-    const { pcm } = mixStudio({ seconds: 3, fps: 30, narration: null, mood: 'epico', sfx: [] })
-    expect(energy(pcm, 0, 3)).toBe(0)
-  })
-  it('efeitos continuam existindo onde foram pedidos', () => {
-    const { pcm } = mixStudio({ seconds: 3, fps: 30, narration: null, mood: 'publicitario', sfx: [{ frame: 45, type: 'pop' }] })
-    expect(energy(pcm, 1.4, 1.7)).toBeGreaterThan(0)
-    expect(energy(pcm, 2.2, 3)).toBe(0)
-  })
 })
 
 describe('os 3 modelos de vídeo', () => {
-  it('chat escolhe o modelo pelo pedido', () => {
-    expect(videoModelFor('5 ferramentas de IA para programadores')).toBe('videos')
-    expect(videoModelFor('notícia: o Claude matou o Instagram?')).toBe('videos')
-    expect(videoModelFor('comercial do meu app de finanças, baixe grátis')).toBe('comercial')
-    expect(videoModelFor('anúncio do fone Pulse X com desconto')).toBe('comercial')
-    expect(videoModelFor('filme publicitário da minha cafeteria')).toBe('publicitario')
-    expect(videoModelFor('campanha institucional da empresa')).toBe('publicitario')
+  it('chat escolhe o motor pelo pedido', () => {
+    expect(decideEngine('5 ferramentas de IA para programadores')).toMatchObject({ engine: 'studio' })
+    expect(decideEngine('vídeo animado: 5 ferramentas de IA')).toMatchObject({ engine: 'motion', style: 'auto' })
+    expect(decideEngine('comercial do meu app de finanças, baixe grátis')).toMatchObject({ engine: 'motion', style: 'app-promo' })
+    expect(decideEngine('anúncio do fone Pulse X com desconto')).toMatchObject({ engine: 'studio' })
+    expect(decideEngine('filme publicitário da minha cafeteria')).toMatchObject({ engine: 'studio' })
   })
   it('erro de sintaxe vira o trecho exato do código para a correção', () => {
     const js = ['function renderFrame(n) {', '  const a = 1', '  stage.innerHTML = K.bg(n) + (', '  K.caption(n)', '}'].join('\n')

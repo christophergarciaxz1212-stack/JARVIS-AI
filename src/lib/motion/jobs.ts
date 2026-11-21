@@ -11,7 +11,7 @@ import { decodeAudioFile, openComposition, previews, renderVideo, validate, type
 import { buildPage, fallbackComposition, staticIssues } from './template'
 import { MOTION_STYLES, type Brand, type Composition, type MotionJob, type MotionRequest } from './types'
 import { kitFallback } from './kit'
-import { synthesizeEdge } from '../video/edgeTts'
+import { synthesizeEdge } from '../speech/edgeTts'
 import type { NarrationResult } from '../voice/narrate'
 
 /**

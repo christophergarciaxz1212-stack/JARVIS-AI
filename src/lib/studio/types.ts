@@ -119,6 +119,12 @@ export interface StudioJob {
   framesTotal?: number
   /** Trabalho de que este é uma revisão. */
   parentId?: string
+  /** Revisão: o que o usuário pediu para mudar, como ele disse. */
+  feedback?: string
+  /** Revisão: cenas (0-based) que precisam de imagem nova. */
+  refresh?: number[]
+  /** Quantas vezes foi retomada depois de o app fechar no meio. */
+  resumed?: number
   createdAt: number
   finishedAt?: number
 }

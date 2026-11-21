@@ -11,6 +11,8 @@
  * Saídas na pasta do trabalho: video.mp4, legendas.srt, narracao.wav,
  * capa.jpg e projeto.json (o plano editável, usado nas revisões).
  */
+// Chaves salvas em 🔑 (data/keys.json) entram no ambiente: o NVIDIA FLUX depende disso
+import '../keys'
 import fs from 'fs'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
@@ -19,11 +21,12 @@ import { Browser } from '../motion/chrome'
 import { decodeAudioFile, openComposition, renderVideo } from '../motion/render'
 import { SR, writeWav } from '../motion/audio'
 import { renderImage, imageSize } from '../media/images'
-import { synthesizeEdge } from '../video/edgeTts'
-import { buildCues, toSrt } from '../video/transcribe'
+import { synthesizeEdge } from '../speech/edgeTts'
+import { buildCues, toSrt } from '../speech/transcribe'
 import { direct } from './director'
 import { chooseVoice, decideFormat } from './plan'
-import { buildTimeline, type SceneSpeech } from './timeline'
+import { parseRevision } from './chat'
+import { buildTimeline, speedupFor, voicedSeconds, withRate, type SceneSpeech } from './timeline'
 import { composeScore, mixdown, MOOD_LABELS, placeVoice } from './music'
 import { buildComposition, type CompositionScene } from './composition'
 import {
@@ -73,22 +76,50 @@ export function listStudioJobs(limit = 50): StudioJob[] {
     .slice(0, limit)
 }
 
-/** Trabalhos que estavam rodando quando o app fechou não podem continuar "rodando". */
+/**
+ * Trabalhos que estavam rodando quando o app fechou: voltam para a fila uma vez
+ * (a produção recomeça do roteiro, com o mesmo pedido). Se caírem de novo, ficam
+ * como falha — assim um pedido que derruba o processo não entra em laço.
+ */
 export function recoverStudioJobs() {
   const r = reg()
   if (r.recovered) return
   r.recovered = true
   let ids: string[] = []
   try { ids = fs.readdirSync(studioDir()) } catch { return }
+  const retomar: StudioJob[] = []
   for (const id of ids) {
     const j = getStudioJob(id)
-    if (!j || (j.status !== 'running' && j.status !== 'queued') || r.running.has(id)) continue
+    if (!j || (j.status !== 'running' && j.status !== 'queued') || r.running.has(id) || r.queue.includes(id)) continue
+    if (!j.resumed) {
+      j.resumed = 1
+      j.status = 'queued'
+      j.stages = newStages()
+      j.framesDone = undefined
+      j.framesTotal = undefined
+      j.notes = [...j.notes, 'O JARVIS fechou no meio da produção; ela recomeçou sozinha.']
+      save(j)
+      retomar.push(j)
+      continue
+    }
     j.status = 'failed'
-    j.error = 'A produção foi interrompida (o JARVIS fechou no meio). Peça de novo para refazer.'
+    j.error = 'A produção foi interrompida duas vezes (o JARVIS fechou no meio). Peça de novo para refazer.'
     for (const s of j.stages) if (s.status === 'executando' || s.status === 'aguardando') s.status = 'falhou'
     j.finishedAt = Date.now()
     save(j)
   }
+  for (const j of retomar.sort((a, b) => a.createdAt - b.createdAt)) r.queue.push(j.id)
+  if (retomar.length) void pump()
+}
+
+/** Apaga a produção e os arquivos dela. Em andamento, cancela antes. */
+export function deleteStudioJob(id: string): boolean {
+  if (!getStudioJob(id)) return false
+  cancelStudioJob(id)
+  const r = reg()
+  if (r.running.has(id)) throw new Error('A produção ainda está parando; tente apagar de novo em alguns segundos.')
+  fs.rmSync(studioJobDir(id), { recursive: true, force: true })
+  return true
 }
 
 // ─── Criação, fila e cancelamento ───────────────────────────────────────────
@@ -101,6 +132,8 @@ export interface CreateOptions {
   /** Revisão de um trabalho anterior: o plano dele é ajustado, não reescrito do zero. */
   parentId?: string
   feedback?: string
+  /** Cenas (0-based) cuja imagem deve ser gerada de novo, mesmo com o mesmo prompt. */
+  refresh?: number[]
 }
 
 export function createStudioJob(request: StudioRequest, opts: CreateOptions = {}): StudioJob {
@@ -125,17 +158,33 @@ export function createStudioJob(request: StudioRequest, opts: CreateOptions = {}
     fps: FPS,
     notes: [],
     parentId: parent?.id,
+    feedback: parent ? String(opts.feedback || '').slice(0, 2000) : undefined,
+    refresh: parent && opts.refresh?.length ? opts.refresh.filter(n => Number.isInteger(n) && n >= 0 && n < 30) : undefined,
     createdAt: Date.now(),
   }
   save(job)
   const r = reg()
   r.queue.push(job.id)
-  feedbackOf.set(job.id, opts.feedback || '')
   void pump()
   return job
 }
 
-const feedbackOf = new Map<string, string>()
+
+/**
+ * Revisão pedida em português ("troque a voz", "deixe com 30s", "imagem nova na cena 2"):
+ * o que dá para ler vira campo do pedido; a frase inteira vai para o diretor.
+ */
+export function reviseStudioJob(parentId: string, feedback: string): { job: StudioJob; summary: string[] } {
+  const parent = getStudioJob(parentId)
+  if (!parent) throw new Error('Vídeo anterior não encontrado')
+  if (parent.status === 'queued' || parent.status === 'running') throw new Error('Esse vídeo ainda está em produção. Espere terminar (ou cancele) para pedir o ajuste.')
+  if (!parent.plan) throw new Error('Esse vídeo parou antes de ter roteiro; peça um novo.')
+  const texto = String(feedback || '').trim().slice(0, 2000)
+  if (!texto) throw new Error('Diga o que mudar no vídeo')
+  const rev = parseRevision(texto, parent)
+  const job = createStudioJob({ prompt: '', ...rev.overrides }, { parentId, feedback: texto, refresh: rev.refresh })
+  return { job, summary: rev.summary }
+}
 
 /** Uma produção por vez: render e geradores grátis não aguentam paralelo. */
 async function pump() {
@@ -200,7 +249,7 @@ async function produce(id: string) {
     // 1. Roteiro e direção ──────────────────────────────────────────────────
     inicia('roteiro', 'o diretor está escrevendo o roteiro')
     const parent = job.parentId ? getStudioJob(job.parentId) : null
-    const feedback = feedbackOf.get(id) || ''
+    const feedback = job.feedback || ''
     const { plan, model } = await direct({
       prompt: req.prompt, aspect: f.aspect, seconds: f.seconds, scenes: f.scenes, words: f.words,
       previous: parent?.plan, feedback: parent ? feedback : undefined,
@@ -212,7 +261,7 @@ async function produce(id: string) {
 
     // 2. Imagens ────────────────────────────────────────────────────────────
     inicia('imagens', `0 de ${plan.scenes.length}`)
-    job.assets = await sceneImages(plan, req, f.aspect, dir, parent, (feitas, total, via) => detalhe('imagens', `${feitas} de ${total}${via ? ` · ${via}` : ''}`), job.notes, signal)
+    job.assets = await sceneImages(plan, req, f.aspect, dir, parent, (feitas, total, via) => detalhe('imagens', `${feitas} de ${total}${via ? ` · ${via}` : ''}`), job.notes, signal, job.refresh)
     conclui('imagens', `${job.assets.length} imagens`)
     checa()
 
@@ -227,18 +276,32 @@ async function produce(id: string) {
       const voz = chooseVoice(plan.voice.gender, plan.voice.style, req.voice)
       job.voiceLabel = voz.label
       inicia('narracao', `voz ${voz.label}`)
-      for (let i = 0; i < plan.scenes.length; i++) {
-        checa()
-        const fala = plan.scenes[i].narration
-        if (!fala) { pcmPorCena.push(new Float32Array(0)); continue }
-        detalhe('narracao', `cena ${i + 1} de ${plan.scenes.length} · ${voz.label}`)
-        const r = await synthesizeEdge(fala, { voice: voz.id, rate: voz.rate, pitch: voz.pitch, signal })
-        const mp3 = path.join(dir, `fala_${String(i).padStart(2, '0')}.mp3`)
-        fs.writeFileSync(mp3, r.mp3)
-        const pcm = await decodeAudioFile(browser, mp3, dir)
-        fs.rmSync(mp3, { force: true })
-        pcmPorCena.push(pcm)
-        speeches[i] = { speech: pcm.length / SR, words: r.words }
+      const narra = async (acelera: number) => {
+        pcmPorCena.length = 0
+        const rate = withRate(voz.rate, acelera)
+        for (let i = 0; i < plan.scenes.length; i++) {
+          checa()
+          const fala = plan.scenes[i].narration
+          if (!fala) { pcmPorCena.push(new Float32Array(0)); speeches[i] = { speech: 0, words: [] }; continue }
+          detalhe('narracao', `cena ${i + 1} de ${plan.scenes.length} · ${voz.label}${acelera ? ` · ${rate}` : ''}`)
+          const r = await synthesizeEdge(fala, { voice: voz.id, rate, pitch: voz.pitch, signal })
+          const mp3 = path.join(dir, `fala_${String(i).padStart(2, '0')}.mp3`)
+          fs.writeFileSync(mp3, r.mp3)
+          const pcm = await decodeAudioFile(browser!, mp3, dir)
+          fs.rmSync(mp3, { force: true })
+          // Só a parte com voz: o silêncio do fim do áudio não vira tempo de cena
+          const dur = voicedSeconds(pcm, SR, r.lastWordEnd)
+          pcmPorCena.push(pcm.subarray(0, Math.min(pcm.length, Math.ceil(dur * SR))))
+          speeches[i] = { speech: dur, words: r.words }
+        }
+      }
+      await narra(0)
+      // Fala que estoura a duração pedida: uma segunda passada um pouco mais rápida
+      const previa = buildTimeline(speeches, { target: f.seconds, endCard: !!plan.cta, narrated: true })
+      const acelera = speedupFor(previa.duration, f.seconds, speeches.reduce((t, s) => t + s.speech, 0))
+      if (acelera > 0) {
+        await narra(acelera)
+        job.notes.push(`A fala passava da duração pedida; narrei ${Math.round(acelera * 100)}% mais rápido para caber.`)
       }
       conclui('narracao', job.voiceLabel)
     } else pula('narracao', 'sem narração, como pedido')
@@ -341,7 +404,6 @@ async function produce(id: string) {
     persist(true)
   } finally {
     reg().running.delete(id)
-    feedbackOf.delete(id)
     await browser?.close().catch(() => {})
     limpaTemporarios(dir)
   }
@@ -380,6 +442,7 @@ const IMG_ASPECT: Record<Aspect, '16:9' | '9:16' | '1:1'> = { '16:9': '16:9', '9
 async function sceneImages(
   plan: ProductionPlan, req: StudioRequest, aspect: Aspect, dir: string, parent: StudioJob | null,
   progresso: (feitas: number, total: number, via?: string) => void, notes: string[], signal: AbortSignal,
+  refresh_?: number[],
 ): Promise<SceneAsset[]> {
   const total = plan.scenes.length
   const assets: Array<SceneAsset | undefined> = new Array(total)
@@ -397,10 +460,11 @@ async function sceneImages(
   const doUsuario = (req.images || []).filter(p => { try { return fs.statSync(p).isFile() } catch { return false } })
   doUsuario.slice(0, total).forEach((p, i) => grava(i, fs.readFileSync(p), path.extname(p).slice(1).toLowerCase() || 'jpg', 'sua imagem'))
 
-  // Revisão: reaproveita imagens de cenas iguais
+  // Revisão: reaproveita imagens de cenas iguais, menos as que o usuário pediu para trocar
+  const refresh = new Set(refresh_ ?? [])
   if (parent?.plan && parent.assets) {
     plan.scenes.forEach((s, i) => {
-      if (assets[i]) return
+      if (assets[i] || refresh.has(i)) return
       const k = parent.plan!.scenes.findIndex(o => o.image === s.image)
       const a = k >= 0 ? parent.assets!.find(x => x.scene === k) : undefined
       const origem = a ? path.join(studioJobDir(parent.id), a.file) : ''

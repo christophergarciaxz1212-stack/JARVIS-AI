@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTimeline, END_CARD, GAP, LEAD_IN, MIN_SCENE, sceneAt } from '@/lib/studio/timeline'
+import { buildTimeline, END_CARD, GAP, LEAD_IN, MAX_SPEEDUP, MIN_SCENE, sceneAt, speedupFor, voicedSeconds, withRate } from '@/lib/studio/timeline'
 
 const fala = (seg: number, palavras = ['um', 'dois']) => ({
   speech: seg,
@@ -85,5 +85,47 @@ describe('cena no instante', () => {
     expect(sceneAt(t.timings, 0)).toBe(0)
     expect(sceneAt(t.timings, t.timings[1].start + 0.1)).toBe(1)
     expect(sceneAt(t.timings, t.duration)).toBe(2)
+  })
+})
+
+describe('fala sem o silêncio do fim', () => {
+  const SR = 1000
+  const audio = (voz: number, silencio: number) => {
+    const pcm = new Float32Array(Math.round((voz + silencio) * SR))
+    for (let i = 0; i < voz * SR; i++) pcm[i] = Math.sin(i) * 0.5
+    return pcm
+  }
+
+  it('desconta o silêncio que o serviço de voz deixa no fim', () => {
+    // 2 s de voz + 0,9 s de silêncio → 2,15 s (folga de 0,15 s)
+    expect(voicedSeconds(audio(2, 0.9), SR)).toBeCloseTo(2.15, 2)
+  })
+
+  it('nunca corta antes do fim da última palavra', () => {
+    expect(voicedSeconds(audio(2, 0.9), SR, 2.5)).toBeCloseTo(2.65, 2)
+  })
+
+  it('nunca passa do áudio que existe', () => {
+    expect(voicedSeconds(audio(2, 0), SR, 5)).toBeCloseTo(2, 2)
+    expect(voicedSeconds(new Float32Array(0), SR)).toBe(0)
+  })
+})
+
+describe('acelerar a fala para caber', () => {
+  it('não mexe quando o vídeo já cabe (até 10 % a mais)', () => {
+    expect(speedupFor(16, 15, 10)).toBe(0)
+  })
+
+  it('acelera o necessário: 22 s para 15 s com 13 s de fala', () => {
+    // sobram 6 s de fala → 13/6 − 1 passa do teto
+    expect(speedupFor(22, 15, 13)).toBe(MAX_SPEEDUP)
+    // 17 s para 15 s com 20 s de fala → 20/18 − 1 ≈ 0,11
+    expect(speedupFor(17, 15, 20)).toBeCloseTo(0.11, 2)
+  })
+
+  it('soma à velocidade do estilo da voz', () => {
+    expect(withRate('+6%', 0.12)).toBe('+18%')
+    expect(withRate('-8%', 0.05)).toBe('-3%')
+    expect(withRate('+0%', 0)).toBe('+0%')
   })
 })

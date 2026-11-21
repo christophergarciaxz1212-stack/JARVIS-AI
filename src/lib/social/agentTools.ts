@@ -47,6 +47,17 @@ const listDoneVideos = (): Array<{ id: string; file: string; at: number; prompt?
       }
     }
   } catch {}
+  // Estúdio de vídeo: um job.json por pasta em data/studio/<id>/
+  try {
+    const dir = path.join(dataDir(), 'studio')
+    for (const id of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+      try {
+        const j = JSON.parse(fs.readFileSync(path.join(dir, id, 'job.json'), 'utf8')) as { id: string; status?: string; output?: string; createdAt?: number; finishedAt?: number; request?: { prompt?: string }; title?: string }
+        const p = j.output || path.join(dir, id, 'video.mp4')
+        if (j.status === 'done' && fs.existsSync(p)) out.push({ id: j.id, file: p, at: j.finishedAt || j.createdAt || 0, prompt: j.request?.prompt, title: j.title })
+      } catch {}
+    }
+  } catch {}
   return out.sort((a, b) => b.at - a.at)
 }
 
@@ -54,8 +65,8 @@ const resolveVideoFile = (videoId: string | undefined): { file: string; id?: str
   if (videoId) {
     const directMotion = path.join(dataDir(), 'motion', videoId, 'video.mp4')
     if (fs.existsSync(directMotion)) return { file: directMotion, id: videoId }
-    const directVideo = path.join(dataDir(), 'video', videoId, 'video.mp4')
-    if (fs.existsSync(directVideo)) return { file: directVideo, id: videoId }
+    const directStudio = /^[\w-]{1,80}$/.test(videoId) ? path.join(dataDir(), 'studio', videoId, 'video.mp4') : ''
+    if (directStudio && fs.existsSync(directStudio)) return { file: directStudio, id: videoId }
     // Perhaps the id is a jobs.json entry rather than a folder name
     const done = listDoneVideos().find(x => x.id === videoId)
     if (done) return done

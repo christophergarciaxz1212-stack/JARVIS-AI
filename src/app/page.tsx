@@ -30,8 +30,8 @@ import HubWorkspace from '@/components/hub/HubWorkspace'
 // Implementação nova (esta sessão): integra com as rotas reais /api/whatsapp/*.
 // O scaffold anterior em ./components/whatsapp/WhatsAppCenter.tsx (outra sessão) foi preservado.
 import WhatsAppCenter from '@/components/WhatsAppCenter'
-import VideoStudio from '@/components/video/VideoStudio'
-import VideoJobInline from '@/components/video/VideoJobInline'
+import StudioPanel from '@/components/studio/StudioPanel'
+import StudioJobInline from '@/components/studio/StudioJobInline'
 import FirstRunSetup from '@/components/firstRun/FirstRunSetup'
 import ImageJobInline from '@/components/image/ImageJobInline'
 import InfraPanel from '@/components/infra/InfraPanel'
@@ -570,32 +570,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     // Com imagens anexadas o pedido segue para o /api/chat (visão/edição multimodal)
     const hasImgAtts = imageAtts.length > 0
 
-    // Video production: detect requests like "crie um vídeo", "faça um vídeo", "produza um vídeo"
-    const videoReq = !hasImgAtts && (/^\/video\s+(.+)$/i.exec(input.trim()) || /(?:crie|fa[cç]a|produza|gere|monte)\s+(?:um\s+)?(?:v[ií]deo|cli?pe|an[uú]ncio|reels?|shorts?|document[aá]rio)\b/i.test(input.trim()))
-    if (videoReq) {
-      const request = input.trim().replace(/^\/video\s+/i, '')
-      setInput('')
-      try {
-        const { job } = await apiPost<{ job: { id: string; title?: string } }>('/api/video', {
-          action: 'create',
-          prompt: request,
-          formatId: 'youtube',
-          seconds: 30,
-          fps: 30,
-          narration: 'auto',
-          music: 'auto',
-        })
-        setMessages(prev => [...prev,
-          { id: uuidv4(), role: 'user', content: request, createdAt: Date.now() },
-          { id: uuidv4(), role: 'assistant', content: '', createdAt: Date.now() + 1, video: { jobId: job.id } },
-        ])
-        toast.success('Produção de vídeo iniciada — acompanhe na conversa')
-      } catch (e) {
-        setInput(request)
-        toast.error((e as Error).message)
-      }
-      return
-    }
+    // Vídeo: o pedido segue para o /api/chat, que cria a produção e grava o cartão na conversa
 
     // Image generation: detect requests like "crie uma imagem", "gere uma imagem", "desenhe"
     const imageReq = !hasImgAtts && (/^\/image\s+(.+)$/i.exec(input.trim()) || /(?:crie|gere|desenhe|fa[cç]a|produza)\s+(?:uma\s+)?(?:imagem|foto|arte|ilustra[cç][aã]o|thumbnail|logo|poster)\b/i.test(input.trim()))
@@ -1021,6 +996,18 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     setInput(texto)
   }, [conversationId, isStreaming])
 
+  // Cartões (ex.: "Ajustar" no vídeo) mandam uma mensagem como se o usuário digitasse
+  useEffect(() => {
+    const onSend = (e: Event) => {
+      const text = String((e as CustomEvent<{ text?: string }>).detail?.text || '').trim()
+      if (!text) return
+      autoSendRef.current = true
+      setInput(text)
+    }
+    window.addEventListener('jarvis:send', onSend)
+    return () => window.removeEventListener('jarvis:send', onSend)
+  }, [])
+
   // Dispara o envio quando o texto refeito já está no campo
   useEffect(() => {
     if (!autoSendRef.current || !input.trim()) return
@@ -1330,7 +1317,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
                 </div>
               ) : msg.video ? (
                 <div key={msg.id} className="px-4 py-1.5 flex justify-start">
-                  <VideoJobInline jobId={msg.video.jobId} />
+                  <StudioJobInline jobId={msg.video.jobId} />
                 </div>
               ) : msg.image ? (
                 <div key={msg.id} className="px-4 py-1.5 flex justify-start">
@@ -1633,7 +1620,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
           />
         )}
         {showMotion && (
-          <VideoStudio
+          <StudioPanel
             key="motion"
             onClose={() => setShowMotion(false)}
           />

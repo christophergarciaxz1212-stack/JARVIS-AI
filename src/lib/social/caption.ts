@@ -98,6 +98,15 @@ Responda APENAS com JSON: {"hook": "...", "body": "...", "cta": "...", "hashtags
 
 /** Carrega o manifesto do Estúdio de Vídeo (se existir) para alimentar a legenda. */
 export function loadStoryboard(videoId: string): { title?: string; scenes?: Array<{ name: string; vo: string }>; prompt?: string } | null {
+  if (!/^[\w-]{1,80}$/.test(videoId)) return null
+  // Estúdio: o plano do diretor tem título e a fala de cada cena
+  try {
+    const f = path.join(dataPath(), 'studio', videoId, 'job.json')
+    if (fs.existsSync(f)) {
+      const j = JSON.parse(fs.readFileSync(f, 'utf8')) as { request?: { prompt?: string }; title?: string; plan?: { scenes?: Array<{ narration: string; onScreen?: string }> } }
+      return { title: j.title || j.request?.prompt?.slice(0, 120), scenes: j.plan?.scenes?.map((s, i) => ({ name: s.onScreen || `Cena ${i + 1}`, vo: s.narration })), prompt: j.request?.prompt }
+    }
+  } catch {}
   try {
     const f = path.join(dataPath(), 'video', videoId, 'script.json')
     if (!fs.existsSync(f)) return null

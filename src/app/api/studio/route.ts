@@ -10,7 +10,7 @@ import path from 'path'
 import { Readable } from 'stream'
 import { NextRequest } from 'next/server'
 import {
-  cancelStudioJob, createStudioJob, getStudioJob, listStudioJobs, studioFile,
+  cancelStudioJob, createStudioJob, deleteStudioJob, getStudioJob, listStudioJobs, reviseStudioJob, studioFile,
 } from '@/lib/studio/producer'
 import type { Aspect, Mood, Quality, StudioRequest } from '@/lib/studio/types'
 
@@ -99,11 +99,10 @@ export async function POST(req: NextRequest) {
     switch (String(body.action || '')) {
       case 'create':
         return Response.json({ job: createStudioJob(sanitize(body)) })
-      case 'revise': {
-        const feedback = String(body.feedback || '').trim().slice(0, 2000)
-        if (!feedback) return fail('Diga o que mudar no vídeo')
-        return Response.json({ job: createStudioJob(sanitize({ ...body, prompt: '' }), { parentId: String(body.id || ''), feedback }) })
-      }
+      case 'revise':
+        return Response.json(reviseStudioJob(String(body.id || ''), String(body.feedback || '')))
+      case 'delete':
+        return Response.json({ ok: deleteStudioJob(String(body.id || '')) })
       case 'cancel':
         return Response.json({ ok: cancelStudioJob(String(body.id || '')) })
       default:

@@ -154,7 +154,7 @@ export default function MotionStudio({ onClose, initialPrompt = '' }: { onClose:
 
         {/* Jobs */}
         <div className="p-5 space-y-3">
-          {!jobs.length && <div className="h-full flex flex-col items-center justify-center text-center text-white/30 text-xs py-16"><Sparkles className="mb-2 text-fuchsia-300/50" />Seus vídeos aparecem aqui.<br />No chat você também pode pedir: “crie um vídeo sobre…”.</div>}
+          {!jobs.length && <div className="h-full flex flex-col items-center justify-center text-center text-white/30 text-xs py-16"><Sparkles className="mb-2 text-fuchsia-300/50" />Seus vídeos aparecem aqui.<br />No chat, peça: “crie um vídeo animado sobre…”.</div>}
           {jobs.map(j => {
             const expanded = open === j.id
             const running = j.status === 'running' || j.status === 'queued'

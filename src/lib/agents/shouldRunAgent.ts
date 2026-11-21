@@ -3,6 +3,7 @@ import { netToolRunner } from '../netlab/tools'
 import { localIntent } from '../local/commands'
 import { memoryIntent } from '../chat/memoryIntent'
 import { promptCraftIntent } from '../chat/promptCraft'
+import { looksLikeRevision } from '../studio/chat'
 
 /**
  * Decides whether a free-form chat message should be handled by the agent runtime
@@ -22,6 +23,8 @@ export function shouldRunAgent(text: string, hasTopology = false): boolean {
   if (promptCraftIntent(t)) return false
   // "gere uma imagem de…", "crie um vídeo sobre…": deterministic media runner (chat route)
   if (/(?:gere|gera|crie|cria|desenhe|desenha|faça|faca|monte|produza|quero|preciso|manda|refaça|refaca)\b[^.!?]{0,40}\b(?:imagem|foto|vídeo|video|videozinho|motion|animação|animacao|logo|logotipo|wallpaper|reels|tiktok|shorts|curta|clipe)\b/i.test(t)) return false
+  // "troque a voz", "deixe com 30s", "imagem nova na cena 2": ajuste do último vídeo (chat)
+  if (looksLikeRevision(t)) return false
   // "refaça como comercial", "agora em animado": refaz o último vídeo noutro modelo (chat)
   if (/^(?:refaça|refaca|refaz|faça|faca|agora|transforme?|mude|troque)\b[^\n]{0,40}\b(?:em|como|estilo|no estilo)\s+(?:um\s+)?(?:animado|motion|comercial|publicit[aá]rio)\b\s*[.!]?$/i.test(t)) return false
   // Network labs, topology edits and network/server reports: handled by the chat's own network lab

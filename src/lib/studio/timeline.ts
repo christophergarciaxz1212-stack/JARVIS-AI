@@ -100,3 +100,38 @@ export function sceneAt(timings: SceneTiming[], t: number): number {
   for (let i = 0; i < timings.length; i++) if (timings[i].start <= t) idx = i
   return idx
 }
+
+/**
+ * Até onde a voz vai de fato. O serviço de voz devolve o áudio com quase um
+ * segundo de silêncio no fim; somado cena a cena, isso esticava o vídeo além da
+ * duração pedida. Mantém uma folga curta para o fim da palavra não cortar.
+ */
+export function voicedSeconds(pcm: Float32Array, sampleRate: number, lastWordEnd = 0, threshold = 0.01, tail = 0.15): number {
+  let fim = pcm.length - 1
+  while (fim > 0 && Math.abs(pcm[fim]) < threshold) fim--
+  const voz = fim > 0 ? (fim + 1) / sampleRate + tail : 0
+  return Math.min(pcm.length / sampleRate, Math.max(voz, lastWordEnd + tail))
+}
+
+/** Teto da aceleração da fala: acima disso a voz soa apressada. */
+export const MAX_SPEEDUP = 0.25
+
+/**
+ * Quanto acelerar a narração (0 a 0,25) para o vídeo caber na duração pedida.
+ * Só age quando passa de 10 %; o que não couber nem acelerado fica como aviso.
+ */
+export function speedupFor(duration: number, target: number, speechTotal: number): number {
+  if (!(speechTotal > 0) || duration <= target * 1.1) return 0
+  const excesso = duration - target
+  const restante = speechTotal - excesso
+  const fator = restante > speechTotal * 0.5 ? speechTotal / restante - 1 : MAX_SPEEDUP
+  const v = Math.min(MAX_SPEEDUP, Math.max(0, fator))
+  return v < 0.05 ? 0 : Math.round(v * 100) / 100
+}
+
+/** Soma a aceleração à velocidade da voz no formato do Edge ("+6%" + 0,12 → "+18%"). */
+export function withRate(rate: string, speedup: number): string {
+  const base = Number(/^([+-]?\d+)%$/.exec(rate)?.[1] ?? 0)
+  const v = Math.round(base + speedup * 100)
+  return `${v >= 0 ? '+' : ''}${v}%`
+}

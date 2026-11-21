@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { downloadDisposition } from '@/lib/video/download'
+import { downloadDisposition } from '@/lib/media/download'
 
 describe('nome do arquivo baixado no Estúdio', () => {
   it('mantém os acentos em filename* e deixa um filename ASCII de reserva', () => {

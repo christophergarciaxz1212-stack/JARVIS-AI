@@ -11,7 +11,7 @@ import ReasoningPanel from './ReasoningPanel'
 
 const fmtMs = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1).replace('.', ',')} s`)
 import MotionJobInline from '@/components/motion/MotionJobInline'
-import VideoJobInline from '@/components/video/VideoJobInline'
+import StudioJobInline from '@/components/studio/StudioJobInline'
 import DocumentInline from '@/components/docs/DocumentInline'
 import TopologyInline from '@/components/netlab/TopologyInline'
 import { extractAll } from '@/lib/motion/inline'
@@ -96,7 +96,7 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
           </>
         )}
         {!isUser && motionJobsFromMsg.map((id: string) => <MotionJobInline key={id} jobId={id} />)}
-        {!isUser && videoJobsFromMsg.map((id: string) => <VideoJobInline key={id} jobId={id} />)}
+        {!isUser && videoJobsFromMsg.map((id: string) => <StudioJobInline key={id} jobId={id} />)}
         {!isUser && imageJobsFromMsg.map((id: string) => <InlineImageInline key={id} jobId={id} />)}
         {!isUser && documentsFromMsg.map(f => <DocumentInline key={f} file={f} />)}
         {!isUser && topologiesFromMsg.map(id => <TopologyInline key={id} id={id} />)}
