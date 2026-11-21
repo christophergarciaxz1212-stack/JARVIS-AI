@@ -9,12 +9,15 @@ import { assignAutoModels, modelHealth, replacementsFor, type ChatMessage, type 
 import { budgetTier, estimateInputTokens, maxInputTokensFor } from '../ai/freeTier'
 import { extractJson, parseAgentTurn } from './parse'
 import { agentFromRole, AUTO_TEAM_ROLES, getRole, ROLE_MAP } from './roles'
+import { createLeaderSystemPrompt, isLeader } from './leader'
+import { MessageBus } from './messageBus'
 import { Scheduler } from './scheduler'
 import { describeExtension, executeTool, lockOwner, normalizeArgs, TOOL_DOCS, TOOL_SPECS, type FinishResult, type ToolHost } from './tools'
 import { getEngine } from '../engine/engine'
 import { redact, deepRedact } from '../redact'
 import { decide as decidePermission, describeRequest, PERMISSION_LABELS } from './permissions'
 import { projectContext } from './projectMemory'
+import { forgetProjectFiles } from './projectFiles'
 import type {
   AgentMessage, AgentRuntimeState, AgentStatus, AgentTask, ApprovalRequest, Complexity, MessageKind, Run, RunEvent, RunStatus, TaskIssue, Usage,
 } from './types'
@@ -65,6 +68,12 @@ export function guardFileClaims(report: string, changes: number): string {
     : `${report}\n\n## PENDENTE\n${warning}`
 }
 
+/** Falhas que uma nova tentativa pode resolver (passos esgotados, formato, modelo instável). */
+export function retryable(message: string) {
+  return /Limite de \d+ passos|fora do formato|Nenhum modelo respondeu|overloaded|indispon|temporar|timeout|tempo esgotado|ECONNRESET|503|502|429/i.test(message)
+    && !/Nenhum modelo disponível|Configure uma chave/i.test(message)
+}
+
 export function newAgentState(cfg: Omit<AgentRuntimeState, 'status' | 'step' | 'maxSteps' | 'usage' | 'calls' | 'errors' | 'activeMs' | 'paused'>, maxSteps: number): AgentRuntimeState {
   return { ...cfg, status: 'waiting', step: 0, maxSteps, usage: { inputTokens: 0, outputTokens: 0 }, calls: 0, errors: [], activeMs: 0, paused: false }
 }
@@ -74,6 +83,7 @@ export class RunController {
   private agentAborts = new Map<string, AbortController>()
   private stoppedAgents = new Set<string>()
   private scheduler?: Scheduler
+  private heartbeat?: ReturnType<typeof setInterval>
   private listeners = new Set<(e: RunEvent) => void>()
   private inboxSeen = new Map<string, number>()
   private persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -84,6 +94,8 @@ export class RunController {
   private pauseWaiters: Array<() => void> = []
   /** Quem está esperando uma decisão do usuário (aprovação de ferramenta ou do plano). */
   private decisionWaiters: Array<() => void> = []
+  /** Esperas dos leaderAsk: id → resolve. */
+  private leaderWaiters = new Map<string, (v: boolean) => void>()
   /** Decisão do usuário sobre o plano no Plan Mode. */
   private planDecision: 'pending' | 'approved' | 'rejected' = 'pending'
 
@@ -92,7 +104,21 @@ export class RunController {
   private settled = false
   done: Promise<void> = Promise.resolve()
 
-  constructor(public run: Run, private deps: RunDeps) {}
+  /** Log central de mensagens da equipe — lê e escreve `run.messages` via closures. */
+  readonly messageBus: MessageBus
+  /** Ordem de gravação das mensagens (desempate de `at` iguais), exposto para inspeção. */
+  readonly messageIds = new Map<string, number>()
+
+  constructor(public run: Run, private deps: RunDeps) {
+    this.messageBus = new MessageBus(
+      () => this.run.messages,
+      m => this.run.messages.push(m),
+      this.messageIds,
+      m => this.emit('message', `${this.agent(m.from)?.name || m.from} → ${m.to === 'all' ? 'equipe' : this.agent(m.to)?.name || m.to}: ${clip(m.content, 160)}`, {
+        agentId: m.from, taskId: m.taskId, data: { messageId: m.id, to: m.to, kind: m.kind },
+      }),
+    )
+  }
 
   // ─── Events & persistence ──────────────────────────────────────────────────
 
@@ -208,6 +234,7 @@ export class RunController {
     } finally {
       this.deps.locks.releasePrefix(`${this.run.id}:`)
       this.persistNow()
+      forgetProjectFiles(this.run.projectPath)
       if (!this.settled) { this.settled = true; this.deps.onSettled?.(this.run) }
     }
   }
@@ -247,6 +274,11 @@ export class RunController {
   }
 
   private async plan() {
+    if ((this.run.autoTeam || this.run.teamId) && !this.run.agents.some(a => a.roleId === 'leader' && !a.removed)) {
+      const leader = newAgentState({ ...agentFromRole('leader', `leader-${uuidv4().slice(0, 8)}`) }, this.run.options.maxSteps)
+      this.run.agents.push(leader)
+      this.emit('agent_added', `${leader.name} entrou na equipe`, { agentId: leader.id })
+    }
     const planner = this.plannerAgent()
     if (!planner) throw new Error('A equipe não tem agentes ativos')
     await this.resolveModels([planner.id])
@@ -375,9 +407,10 @@ Formato:
   // ─── Scheduling ────────────────────────────────────────────────────────────
 
   private async runScheduler() {
+    if (this.heartbeat) clearInterval(this.heartbeat)
     this.scheduler = new Scheduler({
       tasks: () => this.run.tasks,
-      agents: () => this.run.agents,
+      agents: () => this.run.agents.filter(a => !a.removed && !a.paused && (!a.cooldownUntil || a.cooldownUntil <= Date.now())),
       maxParallel: () => this.run.options.maxParallel,
       isPaused: () => this.run.status === 'paused',
       signal: this.abort.signal,
@@ -394,7 +427,23 @@ Formato:
         this.emit('task_reassigned', `${task.id} passou de ${this.agent(from)?.name || from} para ${this.agent(to)?.name || to}`, { taskId: task.id, agentId: to })
       },
     })
-    await this.scheduler.run()
+    this.heartbeat = setInterval(() => {
+      const now = Date.now()
+      for (const a of this.run.agents) {
+        if (a.removed || !['planning', 'executing', 'communicating', 'reviewing'].includes(a.status)) continue
+        const t = a.currentTaskId ? this.task(a.currentTaskId) : undefined
+        const elapsedSec = Math.round((t?.startedAt ? now - t.startedAt : a.activeMs) / 1000)
+        this.emit('agent_heartbeat', `${a.name}: passo ${a.step}/${a.maxSteps} (${elapsedSec}s)`, {
+          agentId: a.id,
+          data: { status: a.status, step: a.step, elapsedSec },
+        })
+      }
+    }, 25_000)
+    try {
+      await this.scheduler.run()
+    } finally {
+      if (this.heartbeat) { clearInterval(this.heartbeat); this.heartbeat = undefined }
+    }
   }
 
   private async runTask(task: AgentTask, agentId: string) {
@@ -411,7 +460,8 @@ Formato:
     task.attempts++
     agent.currentTaskId = task.id
     agent.step = 0
-    agent.maxSteps = this.run.options.maxSteps
+    // Segunda tentativa ganha 50% mais passos
+    agent.maxSteps = task.attempts > 1 ? Math.ceil(this.run.options.maxSteps * 1.5) : this.run.options.maxSteps
     agent.idleReason = undefined
     const role = getRole(agent.roleId)
     this.setAgentStatus(agent, role.reviewer ? 'reviewing' : 'executing')
@@ -422,6 +472,7 @@ Formato:
       if (!agent.resolvedModel) await this.resolveModels([agent.id])
       const result = await this.agentLoop(agent, task, ctrl.signal)
       task.status = 'done'
+      task.progress = 100
       task.result = result.summary
       task.issues = result.issues
       task.finishedAt = Date.now()
@@ -431,13 +482,22 @@ Formato:
       this.postMessage(agent.id, 'all', 'done', `Concluí "${task.title}": ${clip(result.summary, 600)}`, task.id)
     } catch (e) {
       task.finishedAt = Date.now()
-      if (this.abort.signal.aborted) {
+      if (this.abort.signal.aborted || (task.status as string) === 'cancelled') {
         task.status = 'cancelled'
       } else if (isAbort(e) && this.stoppedAgents.has(agent.id)) {
         // Interrupted by the user: back to the queue, picked up again when the agent is restarted
         task.status = 'pending'
         task.finishedAt = undefined
         this.emit('task_interrupted', `${agent.name} foi interrompido em ${task.id}`, { agentId: agent.id, taskId: task.id, level: 'warn' })
+      } else if (task.attempts < 2 && !isAbort(e) && retryable((e as Error).message)) {
+        // Segunda chance antes de bloquear quem depende desta tarefa: volta para a fila com
+        // 50% mais passos e o motivo da falha; o que já foi feito continua nos arquivos.
+        task.status = 'pending'
+        task.error = (e as Error).message
+        task.finishedAt = undefined
+        agent.errors.push(clip(task.error, 300))
+        agent.cooldownUntil = Date.now() + 15_000 + task.attempts * 3_000
+        this.emit('task_retry', `${agent.name} vai tentar ${task.id} de novo: ${clip(task.error, 160)}`, { agentId: agent.id, taskId: task.id, level: 'warn' })
       } else {
         task.status = 'failed'
         task.error = (e as Error).message
@@ -465,10 +525,18 @@ Formato:
       { role: 'user', content: this.taskContext(agent, task) },
     ]
     let parseFailures = 0
+    // Turno em que TODAS as ações falharam só por formato (parâmetro faltando) não gasta passo:
+    // o modelo recebe o formato certo e tenta de novo. Até 4 devoluções por tarefa.
+    let refunds = 0
 
     for (let step = 0; step < agent.maxSteps; step++) {
-      await this.gate(agent, signal)
+      await this.gate(agent, task, signal)
       agent.step = step + 1
+      const progress = Math.round((step + 1) / Math.max(1, agent.maxSteps) * 100)
+      task.progress = progress
+      this.emit('task_progress', `${agent.name}: passo ${agent.step}/${agent.maxSteps}`, {
+        agentId: agent.id, taskId: task.id, data: { progress, detail: `passo ${agent.step}/${agent.maxSteps}` },
+      })
       this.emit('agent_step', `${agent.name}: passo ${agent.step}/${agent.maxSteps}`, { agentId: agent.id, taskId: task.id, data: { step: agent.step } })
 
       const text = await this.callModel(agent, history, signal, { json: true, nativeTools: true })
@@ -483,9 +551,13 @@ Formato:
         history.push({ role: 'user', content: `Formato inválido: ${(e as Error).message}. Responda somente com o JSON {"thought": "...", "actions": [...]}. Escape aspas e quebras de linha dentro das strings.` })
         continue
       }
-      if (turn.thought) this.emit('agent_thought', clip(turn.thought, 500), { agentId: agent.id, taskId: task.id })
+      if (turn.thought) {
+        if (turn.thought.startsWith('ag()')) agent.pendingThought = true
+        this.emit('agent_thought', clip(turn.thought, 500), { agentId: agent.id, taskId: task.id })
+      }
 
       const observations: string[] = []
+      let argErrors = 0
       for (const action of turn.actions) {
         if (signal.aborted) throw abortError()
         if (action.tool === 'send_message' || action.tool === 'delegate') this.setAgentStatus(agent, 'communicating')
@@ -523,30 +595,43 @@ Formato:
         const startedAt = Date.now()
         this.emit('tool_start', `${agent.name} → ${action.tool}${describeArgs(action.args)}`, {
           agentId: agent.id, taskId: task.id,
-          data: { tool: action.tool, args: summarizeArgs(action.args), risk: verdict.risk },
+          data: { tool: action.tool, args: summarizeArgs(argsReais), risk: verdict.risk },
         })
         try {
           const { output, finish } = await executeTool(host, action)
           this.emit('tool', `${agent.name} → ${action.tool}${describeArgs(action.args)}`, {
             agentId: agent.id, taskId: task.id,
-            data: { tool: action.tool, args: summarizeArgs(action.args), durationMs: Date.now() - startedAt, ok: true },
+            data: { tool: action.tool, args: summarizeArgs(argsReais), durationMs: Date.now() - startedAt, ok: true },
           })
           if (finish) return finish
           observations.push(`### ${action.tool}${describeArgs(action.args)}\n${clip(output, isLocalModel(agent.resolvedModel) ? 3_000 : 8_000)}`)
         } catch (e) {
           if (isAbort(e)) throw e
           const msg = (e as Error).message
+          if ((e as Error).name === 'ToolBlocked') {
+            // Recusas de segurança/modo/aprovação são visíveis no transcript — nunca
+            // mostradas como se tivessem sido executadas (MED-4, ex-ME).
+            this.emit('tool_blocked', `${agent.name} → ${action.tool} recusado: ${msg}`, {
+              agentId: agent.id, taskId: task.id, level: 'warn',
+              data: { tool: action.tool, durationMs: Date.now() - startedAt, risk: verdict.risk },
+            })
+            observations.push(`### ${action.tool} → RECUSADO: ${msg}`)
+            continue
+          }
+          if ((e as Error).name === 'ToolArgsError') argErrors++
           this.emit('tool_error', `${agent.name} → ${action.tool}: ${msg}`, {
             agentId: agent.id, taskId: task.id, level: 'warn',
-            data: { tool: action.tool, durationMs: Date.now() - startedAt, ok: false, error: msg },
+            // Chaves recebidas (sem valores) para diagnosticar formatos novos de chamada
+            data: { tool: action.tool, durationMs: Date.now() - startedAt, ok: false, error: msg, argKeys: Object.keys(action.args || {}) },
           })
           observations.push(`### ${action.tool} → ERRO: ${msg}`)
         }
         if (agent.status === 'communicating') this.setAgentStatus(agent, getRole(agent.roleId).reviewer ? 'reviewing' : 'executing')
       }
 
+      if (argErrors && argErrors === turn.actions.length && refunds < 4) { refunds++; step-- }
       const inbox = this.takeInbox(agent)
-      const left = agent.maxSteps - agent.step
+      const left = agent.maxSteps - (step + 1)
       history.push({
         role: 'user',
         content: `${observations.join('\n\n')}${inbox ? `\n\n# Novas mensagens para você\n${inbox}` : ''}\n\n(${left} passo(s) restante(s). ${left <= 2 ? 'Finalize agora com "finish".' : 'Continue ou use "finish" quando terminar.'})`,
@@ -556,13 +641,23 @@ Formato:
     throw new Error(`Limite de ${agent.maxSteps} passos atingido antes de concluir`)
   }
 
-  private async gate(agent: AgentRuntimeState, signal: AbortSignal) {
+  private async gate(agent: AgentRuntimeState, task: AgentTask, signal: AbortSignal) {
+    if (task.status !== 'running') throw abortError()
     while (this.run.status === 'paused' || agent.paused) {
       if (signal.aborted) throw abortError()
       if (agent.status !== 'paused') this.setAgentStatus(agent, 'paused')
       await new Promise<void>(resolve => {
-        this.pauseWaiters.push(resolve)
-        signal.addEventListener('abort', () => resolve(), { once: true })
+        // Listener removido ao fim da espera: sem o done-flag, cada descanso
+        // acumulava um listener até o Node reclamar (MED-7).
+        let done = false
+        const finish = () => {
+          if (done) return
+          done = true
+          signal.removeEventListener('abort', finish)
+          resolve()
+        }
+        this.pauseWaiters.push(finish)
+        signal.addEventListener('abort', finish)
       })
     }
     if (signal.aborted) throw abortError()
@@ -661,7 +756,7 @@ Formato:
   private systemPrompt(agent: AgentRuntimeState) {
     const role = getRole(agent.roleId)
     const team = this.run.agents.filter(a => !a.removed).map(a => `- ${a.id}: ${a.name}`).join('\n')
-    return `Você é ${agent.name} (${role.name}), um agente de IA numa equipe de engenharia que trabalha num projeto REAL no disco do usuário.
+    const base = `Você é ${agent.name} (${role.name}), um agente de IA numa equipe de engenharia que trabalha num projeto REAL no disco do usuário.
 Responsabilidades:
 ${[...role.responsibilities, ...(agent.responsibilities ? [agent.responsibilities] : [])].map(r => `- ${r}`).join('\n')}
 
@@ -683,6 +778,8 @@ Regras:
 - Escreva em português do Brasil.
 
 ${TOOL_DOCS}`
+    if (isLeader(agent)) return `${base}\n\n${createLeaderSystemPrompt(team, this.brief)}`
+    return base
   }
 
   private taskContext(agent: AgentRuntimeState, task: AgentTask) {
@@ -710,6 +807,10 @@ ${this.run.planSummary ? this.run.planSummary + '\n' : ''}${planLines}
 ${this.run.decisions.length ? `\n# Decisões técnicas\n${this.run.decisions.map(d => `- ${d}`).join('\n')}\n` : ''}${changes ? `\n# Arquivos já alterados pela equipe\n${changes}\n` : ''}${depResults ? `\n# Resultados das tarefas de que você depende\n${depResults}\n` : ''}
 # Sua tarefa: ${task.id} — ${task.title}
 ${task.description}
+${task.attempts > 1 && task.error ? `
+⚠️ SEGUNDA TENTATIVA. A anterior falhou: ${clip(task.error, 400)}
+Os arquivos que você já criou continuam no projeto (veja "Arquivos já alterados"): continue de onde parou, sem refazer, e use "finish" assim que terminar.
+` : ''}
 Arquivos autorizados nesta tarefa: ${task.files.length ? task.files.join(', ') : '(nenhum específico)'}
 Seu escopo de escrita: ${scope.length ? scope.join(', ') : 'somente leitura'}
 ${caps}${inbox ? `\n# Mensagens para você\n${inbox}\n` : ''}
@@ -762,12 +863,10 @@ Comece. Responda somente com o JSON.`
     }
   }
 
-  private postMessage(from: string, to: string, kind: MessageKind, content: string, taskId?: string): AgentMessage {
-    const msg: AgentMessage = { id: uuidv4(), from, to, kind, content, at: Date.now(), taskId }
-    this.run.messages.push(msg)
-    this.emit('message', `${this.agent(from)?.name || from} → ${to === 'all' ? 'equipe' : this.agent(to)?.name || to}: ${clip(content, 160)}`, {
-      agentId: from, taskId, data: { messageId: msg.id, to, kind },
-    })
+  postMessage(from: string, to: string, kind: MessageKind, content: string, taskId?: string): AgentMessage {
+    const msg = this.messageBus.post({ from, to, kind, content, taskId })
+    // Avisa as esperas de decisão: quem está no askApproval re-checa o inbox.
+    this.releaseDecisionWaiters()
     return msg
   }
 
@@ -821,6 +920,9 @@ Comece. Responda somente com o JSON.`
     } catch (e) {
       if (!isAbort(e)) this.emit('error', `${target.name} não conseguiu responder: ${(e as Error).message}`, { agentId: target.id, level: 'warn' })
     } finally {
+      // Se a execução terminou enquanto a resposta estava em voo, não devolve o
+      // status do agente para "communicating" depois do "Concluído" (MED-9).
+      if (this.settled) return
       if (target.status === 'communicating') this.setAgentStatus(target, prev === 'communicating' ? 'waiting' : prev)
     }
   }
@@ -841,7 +943,22 @@ Comece. Responda somente com o JSON.`
     this.run.tasks.push(t)
     this.emit('task_created', `Nova tarefa ${t.id} para ${this.agent(t.agentId)?.name}: ${t.title}`, { taskId: t.id, agentId: t.agentId })
     this.scheduler?.wake()
+    this.leaderOnBlockers()
     return t
+  }
+
+  /** Comunica o líder da equipe quando há tarefas bloqueadas ou problemas reportados. */
+  private leaderOnBlockers() {
+    const leader = this.run.agents.find(a => a.roleId === 'leader' && !a.removed)
+    if (!leader) return
+    const blocked = this.run.tasks.filter(t => t.status === 'blocked')
+    const issues = this.run.tasks.filter(t => t.status === 'done' && t.issues?.length && !this.run.handledIssues?.includes(t.id))
+    if (!blocked.length && !issues.length) return
+    const lines = [
+      ...blocked.map(t => `- ${t.id} (${t.title}): ${t.error || 'sem motivo'}`),
+      ...issues.flatMap(t => t.issues!.map(i => `- ${t.id}: ${i.description}${i.role ? ` [papel: ${i.role}]` : ''}`)),
+    ]
+    void this.leaderAsk(leader, `Situção da equipe:\n${lines.join('\n')}\nO que fazer?`, 30_000)
   }
 
   // ─── Fix rounds & report ───────────────────────────────────────────────────
@@ -1084,6 +1201,17 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
         this.persistNow()
         return false
       }
+      // Uma mensagem do usuário no chat nega a aprovação implicitamente: quem pede
+      // "não faça isso" não deveria precisar primeiro de uma aprovação (MED-10).
+      const msgs = this.run.messages.slice(this.inboxSeen.get(agent.id) || 0)
+      this.inboxSeen.set(agent.id, this.run.messages.length)
+      if (msgs.some(m => m.from === 'user' && (m.to === agent.id || m.to === 'all'))) {
+        req.status = 'denied'
+        req.decidedAt = Date.now()
+        this.persistNow()
+        this.emit('approval_decision', 'Negado — o usuário enviou uma mensagem antes da decisão', { agentId: agent.id, taskId: task.id })
+        return false
+      }
       await this.waitForDecision(signal)
     }
     return req.status === 'approved'
@@ -1155,6 +1283,42 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
     const target = to === 'all' ? 'all' : this.recipient(to)
     if (!target) throw new Error('Agente não encontrado')
     this.postMessage('user', target, 'user', content)
+    const agent = this.agent(target)
+    const p = agent?.pendingReply
+    if (agent && p) {
+      agent.pendingReply = undefined
+      this.leaderWaiters.get(p.id)?.(true)
+      this.emit('leader_reply', `Resposta do usuário recebida: ${clip(content, 200)}`, { agentId: agent.id, data: { questionId: p.id } })
+    }
+  }
+
+  /**
+   * Pede à equipe como "líder": posta mensagem para 'user', emite 'leader_question'
+   * e espera a resposta por `userMessage`. Devolve false no timeout ou quando a
+   * execução foi cancelada.
+   */
+  async leaderAsk(agent: AgentRuntimeState, content: string, timeoutMs = 45_000): Promise<boolean> {
+    const id = uuidv4()
+    const question = clip(content, 500)
+    agent.pendingReply = { id, question, at: Date.now(), createdAt: Date.now() }
+    this.postMessage(agent.id, 'user', 'question', question, agent.currentTaskId)
+    this.emit('leader_question', `${agent.name} pede à equipe: ${question}`, { agentId: agent.id, data: { messageId: id, question } })
+    const got = await new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => { this.leaderWaiters.delete(id); resolve(false) }, timeoutMs)
+      this.leaderWaiters.set(id, v => { clearTimeout(timer); this.leaderWaiters.delete(id); resolve(v) })
+    })
+    if (agent.pendingReply?.id === id) agent.pendingReply = undefined
+    return got
+  }
+
+  cancelTask(taskId: string): string {
+    const t = this.task(taskId)
+    if (!t) return ''
+    t.status = 'cancelled'
+    t.finishedAt = Date.now()
+    this.emit('task_cancelled', `${t.id} cancelada: ${t.title}`, { taskId: t.id, agentId: t.agentId, level: 'warn' })
+    this.scheduler?.wake()
+    return t.id
   }
 }
 
@@ -1162,8 +1326,10 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
 
 function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
-    const t = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => { clearTimeout(t); reject(abortError()) }, { once: true })
+    let done = false
+    const onAbort = () => { if (done) return; done = true; clearTimeout(t); reject(abortError()) }
+    const t = setTimeout(() => { if (done) return; done = true; signal.removeEventListener('abort', onAbort); resolve() }, ms)
+    signal.addEventListener('abort', onAbort)
   })
 }
 
