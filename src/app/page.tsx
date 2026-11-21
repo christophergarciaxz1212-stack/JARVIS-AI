@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, MotionConfig, AnimatePresence } from 'framer-motion'
 import NeuralBackground from '@/components/NeuralBackground'
 import BootSequence from '@/components/BootSequence'
@@ -47,6 +47,7 @@ import { useChatContext } from '@/components/chat/useChatContext'
 import SettingsPanel from '@/components/settings/SettingsPanel'
 import { usePrefs } from '@/components/settings/usePrefs'
 import { post as apiPost } from '@/components/agents/api'
+import RunPanel from '@/components/agents/RunPanel'
 import { shouldRunAgent } from '@/lib/agents/shouldRunAgent'
 import { PERMISSION_LABELS, PERMISSION_MODES, type PermissionMode } from '@/lib/agents/permissions'
 import { helpText, parseOnOff, parsePermissionArg, parseSlash, referencedFiles } from '@/lib/chat/slash'
@@ -89,7 +90,7 @@ export default function JarvisApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   // The conversation gets the room by default; the terminal/files panel opens on demand
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
-  const [rightTab, setRightTab] = useState<'terminal' | 'memory' | 'files'>('terminal')
+  const [rightTab, setRightTab] = useState<'run' | 'terminal' | 'memory' | 'files'>('terminal')
   const [terminalOutput, setTerminalOutput] = useState<TerminalEntry[]>([])
   const [terminalInput, setTerminalInput] = useState('')
   const [terminalRunning, setTerminalRunning] = useState(false)
@@ -241,6 +242,27 @@ export default function JarvisApp() {
   const savePanels = (left: boolean, right: boolean) => {
     try { localStorage.setItem('jarvis.panels', JSON.stringify({ left, right })) } catch {}
   }
+  /** Execução da conversa reaberta: as mensagens salvas não carregam o id do run. */
+  const [savedRunId, setSavedRunId] = useState('')
+
+  /** Execução mais recente desta conversa — alimenta a aba "Execução" do painel direito. */
+  const activeRunId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const r = messages[i].run
+      if (r?.id) return r.id
+    }
+    return savedRunId
+  }, [messages, savedRunId])
+
+  // Quando uma execução começa, a coluna da direita passa a mostrá-la: é o
+  // contexto do momento. Se o usuário já está noutra aba, respeitamos a escolha.
+  const runSeenRef = useRef('')
+  useEffect(() => {
+    if (!activeRunId || runSeenRef.current === activeRunId) return
+    runSeenRef.current = activeRunId
+    setRightTab('run')
+  }, [activeRunId])
+
   const toggleSidebar = () => { setSidebarOpen(!sidebarOpen); savePanels(!sidebarOpen, rightPanelOpen) }
   const toggleRightPanel = () => { setRightPanelOpen(!rightPanelOpen); savePanels(sidebarOpen, !rightPanelOpen) }
 
@@ -330,11 +352,15 @@ export default function JarvisApp() {
   }, [messages, isStreaming])
 
   // Load messages when conversation changes
+  /** Resumo que substituiu as mensagens antigas no que vai ao modelo (/compact). */
+  const [compaction, setCompaction] = useState<{ covered: number } | null>(null)
+
   useEffect(() => {
     if (!conversationId || conversationId === streamingConvRef.current) return
     fetch(`/api/chat?conversationId=${conversationId}`)
       .then(r => r.json())
       .then(d => {
+        setCompaction(d.compaction || null)
         if (d.messages) {
           setMessages(d.messages.map((m: { id: string; role: string; content: string; created_at: number; model?: string }) => ({
             id: m.id,
@@ -345,6 +371,12 @@ export default function JarvisApp() {
           })))
         }
       })
+      .catch(() => {})
+
+    // O painel de execução precisa continuar acessível depois de reabrir a conversa
+    setSavedRunId('')
+    agentsApi.runs(conversationId)
+      .then(runs => { if (runs.length) setSavedRunId(runs[0].id) })
       .catch(() => {})
   }, [conversationId])
 
@@ -1326,7 +1358,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
           <div className="relative chat-column">
             <SlashMenu input={input} onPick={t => { setInput(t); inputRef.current?.focus() }} />
             <FileMentionMenu input={input} caret={caret} projectId={projectId} onPick={pickMentionedFile} />
-            <ContextBar ctx={chatCtx} pasteOpen={pasteOpen} onClosePaste={() => setPasteOpen(false)} />
+            <ContextBar ctx={chatCtx} pasteOpen={pasteOpen} onClosePaste={() => setPasteOpen(false)} compaction={compaction} />
             {imageAtts.length > 0 && (
               <div className="flex items-center gap-2 px-2 pb-2 flex-wrap">
                 {imageAtts.map(img => (
@@ -1477,6 +1509,8 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
             {/* Panel tabs */}
             <div role="tablist" className="flex p-2 gap-1 border-b border-white/5">
               {([
+                // A aba de execução só existe quando há uma: painel vazio não ocupa espaço.
+                ...(activeRunId ? [{ id: 'run' as const, icon: Zap, label: 'Execução' }] : []),
                 { id: 'terminal', icon: Terminal, label: 'Terminal' },
                 { id: 'memory', icon: Brain, label: 'Memória' },
                 { id: 'files', icon: FolderOpen, label: 'Arquivos' },
@@ -1494,6 +1528,11 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
                 </button>
               ))}
             </div>
+
+            {/* Execução em andamento: plano, alterações e agentes */}
+            {rightTab === 'run' && activeRunId && (
+              <RunPanel runId={activeRunId} onChanged={() => setSessionsRefresh(x => x + 1)} />
+            )}
 
             {/* Terminal */}
             {rightTab === 'terminal' && (

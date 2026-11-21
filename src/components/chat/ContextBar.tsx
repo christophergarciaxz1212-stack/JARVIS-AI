@@ -9,10 +9,12 @@ import { shortModelName } from '@/lib/ai/status'
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1).replace('.', ',')} mil` : String(n))
 
 /** Faixa acima do campo de mensagem: o contexto da conversa, o painel "colar texto" e o aviso de corte. */
-export default function ContextBar({ ctx, pasteOpen, onClosePaste }: {
+export default function ContextBar({ ctx, pasteOpen, onClosePaste, compaction }: {
   ctx: ReturnType<typeof useChatContext>
   pasteOpen: boolean
   onClosePaste: () => void
+  /** Conversa compactada por /compact: quantas mensagens o resumo cobre. */
+  compaction?: { covered: number } | null
 }) {
   const [text, setText] = useState('')
   const [name, setName] = useState('')
@@ -46,6 +48,22 @@ export default function ContextBar({ ctx, pasteOpen, onClosePaste }: {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Conversa compactada: o histórico continua inteiro na tela, só o que vai
+          ao modelo foi resumido. Número vindo do servidor, não estimado. */}
+      {compaction && compaction.covered > 0 && (
+        <div className="px-2 pb-1.5">
+          <span
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-white/10 bg-white/[0.03] text-[10.5px] text-white/50"
+            title="Use /compact de novo quando a conversa voltar a ficar longa"
+          >
+            <Layers size={10} />
+            Contexto compactado · {compaction.covered === 1
+              ? '1 mensagem virou resumo'
+              : `${compaction.covered} mensagens viraram resumo`} (o histórico continua aqui)
+          </span>
+        </div>
+      )}
 
       {(ctx.items.length > 0 || ctx.busy) && (
         <div className="px-2 pb-2">

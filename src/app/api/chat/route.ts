@@ -28,7 +28,7 @@ import {
   updateSession,
 } from '@/lib/db'
 import { memoryCommandRunner, memorySystemContext } from '@/lib/chat/memory'
-import { applyCompaction } from '@/lib/chat/compact'
+import { applyCompaction, getCompaction } from '@/lib/chat/compact'
 import { promptCraftContext } from '@/lib/chat/promptCraft'
 
 // Older turns add input tokens (= latency) without helping much
@@ -563,7 +563,12 @@ export async function GET(req: NextRequest) {
 
   try {
     const messages = getMessages(conversationId)
-    return Response.json({ messages })
+    // A conversa pode estar compactada: a tela mostra tudo, o modelo recebe o resumo.
+    const c = getCompaction(conversationId)
+    return Response.json({
+      messages,
+      compaction: c ? { covered: c.covered, at: c.at, createdAt: c.createdAt } : null,
+    })
   } catch (error) {
     return Response.json({ error: 'Erro ao buscar mensagens' }, { status: 500 })
   }
