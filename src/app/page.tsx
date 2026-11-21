@@ -51,6 +51,7 @@ import RunPanel from '@/components/agents/RunPanel'
 import TerminalPanel from '@/components/chat/TerminalPanel'
 import { shouldRunAgent } from '@/lib/agents/shouldRunAgent'
 import { PERMISSION_LABELS, PERMISSION_MODES, type PermissionMode } from '@/lib/agents/permissions'
+import { decideTeam } from '@/lib/agents/teamDecision'
 import { helpText, parseOnOff, parsePermissionArg, parseSlash, referencedFiles } from '@/lib/chat/slash'
 import FileMentionMenu from '@/components/chat/FileMentionMenu'
 import { hidePartialMarker } from '@/lib/motion/inline'
@@ -627,8 +628,13 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
       setInput('')
       try {
         const p = prefs?.agent
+        // Um agente só resolve a maioria dos pedidos; quando o trabalho junta
+        // frentes diferentes, a equipe automática entra (teamId undefined liga
+        // o autoTeam, que cria os especialistas conforme o plano).
+        const equipe = decideTeam(request)
         const { run } = await apiPost<{ run: { id: string; sessionId: string; projectId: string } }>('/api/agents/runs', {
-          agentMode: true, projectId, request, teamId: 'preset-solo',
+          agentMode: true, projectId, request,
+          teamId: equipe.plan === 'equipe' ? undefined : 'preset-solo',
           options: {
             ...(p ? { maxSteps: p.maxSteps, maxParallel: p.maxParallel, fixRounds: p.fixRounds } : {}),
             autoFallback: true,
@@ -645,7 +651,9 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
         setSessionsRefresh(x => x + 1)
         toast.success(planCmd
           ? 'JARVIS vai investigar e apresentar o plano — nada será alterado antes da sua aprovação'
-          : 'JARVIS começou a trabalhar — acompanhe ao vivo na conversa')
+          : equipe.plan === 'equipe'
+            ? `JARVIS montou uma equipe — ${equipe.reason}`
+            : 'JARVIS começou a trabalhar — acompanhe ao vivo na conversa')
       } catch (e) {
         setInput(request)
         toast.error((e as Error).message)
