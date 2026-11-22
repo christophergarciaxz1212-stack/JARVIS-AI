@@ -29,6 +29,23 @@ describe('diagnóstico interno', () => {
     expect(report.summary).toHaveProperty('ok')
   })
 
+  it('reports the real watchdog state in the self-check', async () => {
+    const { getInfraCore } = await import('@/lib/infra/core')
+    const { gatherDiagnostics } = await import('@/lib/infra/diagnostics')
+    const core = getInfraCore()
+    const wasRunning = core.watchdog.running
+    core.watchdog.start()
+    try {
+      expect(core.watchdog.running).toBe(true)
+      const d = await gatherDiagnostics()
+      const row = d.selfcheck.checks.find(c => c.id === 'watchdog')
+      expect(row?.status).toBe('ok')
+      expect(row?.detail).toBe('Ativo, sem incidentes abertos')
+    } finally {
+      if (!wasRunning) core.watchdog.stop()
+    }
+  })
+
   it('GET /api/diagnostics devolve módulos e resumo', async () => {
     const { GET } = await import('@/app/api/diagnostics/route')
     const res = await GET()
