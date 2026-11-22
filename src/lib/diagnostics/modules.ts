@@ -115,14 +115,35 @@ const PROBES: Probe[] = [
       detail: 'dataDir() gravável', checkedAt: 0 }
   },
   async () => {
-    let sha = 'desconhecido'
+    // No repositório o commit é a identidade mais precisa. No pacote instalado não há
+    // .git, então o BUILD_ID do Next somado à versão do package.json identifica o build.
+    let gitSha: string | null = null
     try {
-      sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 2_000 }).trim()
+      gitSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 2_000 }).trim() || null
     } catch { /* sem git ou sem HEAD */ }
-    return { id: 'build', name: 'Versão do build', category: 'build', status: sha === 'desconhecido' ? 'unknown' : 'ok',
-      evidence: sha, detail: 'commit atual do código-fonte', checkedAt: 0 }
+    let buildId: string | null = null
+    try {
+      const p = path.join(process.cwd(), '.next', 'BUILD_ID')
+      if (fs.existsSync(p)) buildId = fs.readFileSync(p, 'utf8').trim() || null
+    } catch { /* build ainda não gerado */ }
+    let version: string | null = null
+    try {
+      const p = path.join(process.cwd(), 'package.json')
+      if (fs.existsSync(p)) version = (JSON.parse(fs.readFileSync(p, 'utf8')) as { version?: string }).version || null
+    } catch { /* package.json ausente */ }
+    const id = resolveBuildIdentity({ gitSha, buildId, version })
+    return { id: 'build', name: 'Versão do build', category: 'build', status: id.status,
+      evidence: id.evidence, detail: 'commit do código-fonte ou versão/ID do build instalado', checkedAt: 0 }
   },
 ]
+
+/** Identidade do build: commit no repositório, ou versão + BUILD_ID no pacote instalado. */
+export function resolveBuildIdentity(input: { gitSha: string | null; buildId: string | null; version: string | null }): { evidence: string; status: ModuleStatus } {
+  if (input.gitSha) return { evidence: input.gitSha, status: 'ok' }
+  const parts = [input.version ? `v${input.version}` : null, input.buildId].filter((x): x is string => !!x)
+  if (parts.length) return { evidence: parts.join(' · '), status: 'ok' }
+  return { evidence: 'desconhecido', status: 'unknown' }
+}
 
 /** Executa todas as sondas; uma sonda que lança nunca derruba o relatório inteiro. */
 export async function collectModuleStatus(opts: { now?: number; base?: string } = {}): Promise<DiagnosticReport> {
