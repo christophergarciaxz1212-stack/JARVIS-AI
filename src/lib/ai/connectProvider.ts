@@ -177,6 +177,25 @@ export async function connectProvider(input: { baseUrl: string; apiKey: string; 
     // /models não prova o formato do chat: há gateway que lista em OpenAI e só responde em Anthropic.
     const alternate: ApiStyle = probe.style === 'openai' ? 'anthropic' : 'openai'
     const alternateAuth: AuthMode = alternate === 'anthropic' ? 'x-api-key' : 'bearer'
+    const originalStyle = provider.style
+    const originalAuth: AuthMode = provider.auth ?? probe.auth
+    // A troca é gravada antes do retry porque é assim que a conversa passa a usar o outro formato.
+    // Se o retry falhar (inclusive por abort), volta ao estado anterior: nunca deixar uma config
+    // não validada no lugar de uma que já funcionava.
+    const restore = () => {
+      saved = upsertCustomProvider({
+        id: provider.id,
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        style: originalStyle,
+        apiKey: undefined, // mantém a chave já salva
+        manualModels: provider.manualModels,
+        freeOnly: provider.freeOnly,
+        auth: originalAuth,
+      })
+      probe.style = originalStyle
+      probe.auth = originalAuth
+    }
     const trial = upsertCustomProvider({
       id: provider.id,
       name: provider.name,
@@ -189,27 +208,16 @@ export async function connectProvider(input: { baseUrl: string; apiKey: string; 
     })
     probe.style = alternate
     probe.auth = alternateAuth
-    const retry = await tryChat(trial)
-    if (retry.result.ok || !retry.protocolMismatch) test = retry.result
-    if (retry.result.ok) {
-      saved = trial
-    } else {
-      // A troca é gravada antes do retry porque é assim que a conversa passa a usar o outro formato.
-      // Se o retry falhou, volta ao estado anterior: não deixar uma config não validada no lugar de
-      // uma que já funcionava (e não dizer "conectado" com um formato que não provou funcionar).
-      saved = upsertCustomProvider({
-        id: provider.id,
-        name: provider.name,
-        baseUrl: provider.baseUrl,
-        style: provider.style,
-        apiKey: undefined,
-        manualModels: provider.manualModels,
-        freeOnly: provider.freeOnly,
-        auth: provider.auth,
-      })
-      probe.style = provider.style
-      probe.auth = provider.auth
+    let retry: Awaited<ReturnType<typeof tryChat>>
+    try {
+      retry = await tryChat(trial)
+    } catch (e) {
+      restore()
+      throw e // abort do usuário continua sendo propagado
     }
+    if (retry.result.ok || !retry.protocolMismatch) test = retry.result
+    if (retry.result.ok) saved = trial
+    else restore()
   }
   return { provider: saved, models: probe.models, test, detected: { baseUrl: probe.baseUrl, style: probe.style, auth: probe.auth } }
 }

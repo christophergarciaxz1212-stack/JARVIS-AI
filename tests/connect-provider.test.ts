@@ -44,6 +44,8 @@ describe('conectar com URL e chave: servidores de verdade', () => {
   let dir = ''
   let server: http.Server
   let base = ''
+  let retryStarted: (() => void) | undefined
+  let releaseRetry: (() => void) | undefined
   const KEY = 'sk-teste-123'
   const json = (res: http.ServerResponse, code: number, body: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)) }
   const chat = (model: string) => ({ id: 'x', object: 'chat.completion', created: 1, model, choices: [{ index: 0, message: { role: 'assistant', content: '12' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 } })
@@ -54,7 +56,7 @@ describe('conectar com URL e chave: servidores de verdade', () => {
     server = http.createServer((req, res) => {
       let raw = ''
       req.on('data', c => { raw += c })
-      req.on('end', () => {
+      req.on('end', async () => {
         const url = req.url || ''
         const bearer = req.headers.authorization === `Bearer ${KEY}`
         // 1) "como a DeepSeek": /models e /chat/completions na raiz, chave em Bearer
@@ -94,7 +96,28 @@ describe('conectar com URL e chave: servidores de verdade', () => {
           if (url.endsWith('/v1/messages')) return json(res, 400, pff ? mismatch : { error: { message: 'modelo indisponível no gateway' } })
           return json(res, 404, { error: 'not found' })
         }
-        // 6) API que não lista modelos
+        // 6) Abort no meio do retry: a troca de formato já foi gravada e precisa ser desfeita
+        if (url.startsWith('/pa/')) {
+          if (url === '/pa/models' && bearer) return json(res, 200, { data: [{ id: 'Broken-M3' }] })
+          if (url === '/pa/chat/completions') return json(res, 400, { error: 'protocol_mismatch', message: 'No compatible provider available for this request format' })
+          if (url === '/pa/v1/messages' && req.headers['x-api-key'] === KEY) {
+            retryStarted?.()
+            await new Promise<void>(r => { releaseRetry = r })
+            return json(res, 400, { error: 'protocol_mismatch', message: 'No compatible provider available for this request format' })
+          }
+          return json(res, 404, { error: 'not found' })
+        }
+        // 7) Gateway detectado como Anthropic pelo /models, mas que só conversa em OpenAI com Bearer
+        if (url.startsWith('/rev/')) {
+          if (/\/models$/.test(url) || /\/api\/tags$/.test(url)) {
+            if (url === '/rev/v1/models' && req.headers['x-api-key'] === KEY && req.headers['anthropic-version']) return json(res, 200, { data: [{ id: 'rev-chat' }] })
+            return json(res, 404, { error: 'not found' })
+          }
+          if (url === '/rev/v1/messages' && req.headers['x-api-key'] === KEY) return json(res, 400, { error: 'protocol_mismatch', message: 'No compatible provider available for this request format' })
+          if (url === '/rev/v1/chat/completions' && bearer && !req.headers['x-api-key']) return json(res, 200, chat('rev-chat'))
+          return json(res, 404, { error: 'not found' })
+        }
+        // 8) API que não lista modelos
         if (url.startsWith('/nolist/')) {
           if (url === '/nolist/v1/chat/completions' && bearer) return json(res, 200, chat('meu-modelo'))
           return json(res, 404, { error: 'not found' })
@@ -136,7 +159,14 @@ describe('conectar com URL e chave: servidores de verdade', () => {
     expect(r.provider.style).toBe('anthropic')
     expect(r.detected).toMatchObject({ style: 'anthropic', auth: 'x-api-key' })
     expect(publicView(readCustomProviders().find(p => p.id === r.provider.id)!).hasKey).toBe(true)
+    expect(publicView(readCustomProviders().find(p => p.id === r.provider.id)!).keyHint).toBe(`••••${KEY.slice(-4)}`)
     expect(JSON.stringify(r)).not.toContain(KEY)
+  })
+  it('gateway detectado como Anthropic mas que só fala OpenAI: volta para Bearer', async () => {
+    const r = await connectProvider({ baseUrl: `${base}/rev`, apiKey: KEY })
+    expect(r.test).toMatchObject({ ok: true, model: 'rev-chat' })
+    expect(r.provider.style).toBe('openai')
+    expect(r.detected).toMatchObject({ style: 'openai', auth: 'bearer' })
   })
   it('retry que falha com outro erro: mostra o erro real e desfaz a troca de formato', async () => {
     const { publicView, readCustomProviders } = await import('@/lib/ai/customProviders')
@@ -147,6 +177,7 @@ describe('conectar com URL e chave: servidores de verdade', () => {
     expect(r.detected).toMatchObject({ style: 'openai', auth: 'bearer' })
     expect(readCustomProviders().find(p => p.id === r.provider.id)?.style).toBe('openai')
     expect(publicView(readCustomProviders().find(p => p.id === r.provider.id)!).hasKey).toBe(true)
+    expect(publicView(readCustomProviders().find(p => p.id === r.provider.id)!).keyHint).toBe(`••••${KEY.slice(-4)}`)
     expect(JSON.stringify(r)).not.toContain(KEY)
   })
   it('retry que também dá protocol_mismatch: mantém o erro original e a config original', async () => {
@@ -155,6 +186,20 @@ describe('conectar com URL e chave: servidores de verdade', () => {
     expect(r.test.error).toMatch(/protocol_mismatch/)
     expect(r.provider.style).toBe('openai')
     expect(r.detected.style).toBe('openai')
+  })
+  it('abort durante o retry: desfaz a troca de formato antes de propagar', async () => {
+    const { readCustomProviders } = await import('@/lib/ai/customProviders')
+    const controller = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>(r => { markStarted = r })
+    retryStarted = markStarted
+    const pending = connectProvider({ baseUrl: `${base}/pa`, apiKey: KEY, signal: controller.signal })
+    const outcome = expect(pending).rejects.toThrow()
+    await started
+    controller.abort()
+    releaseRetry?.()
+    await outcome
+    expect(readCustomProviders().find(p => p.baseUrl === `${base}/pa`)?.style).toBe('openai')
   })
   it('chave errada: avisa que a chave foi recusada', async () => {
     await expect(connectProvider({ baseUrl: `${base}/ds`, apiKey: 'sk-errada' })).rejects.toThrow(/recusou a chave/)
