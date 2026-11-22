@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyModuleError, summarize, collectModuleStatus } from '@/lib/diagnostics/modules'
+import { classifyModuleError, summarize, collectModuleStatus, resolveBuildIdentity } from '@/lib/diagnostics/modules'
 
 describe('diagnóstico interno', () => {
   it('classifica falha externa como atenção e falha interna como erro', () => {
@@ -27,6 +27,19 @@ describe('diagnóstico interno', () => {
       expect(JSON.stringify(m)).not.toMatch(/sk-[A-Za-z0-9]{16,}|AIza[A-Za-z0-9_-]{16,}/)
     }
     expect(report.summary).toHaveProperty('ok')
+  })
+
+  it('identifica o build instalado mesmo sem git', () => {
+    const fromGit = resolveBuildIdentity({ gitSha: '3b4e364', buildId: 'uhsW', version: '1.2.2' })
+    expect(fromGit).toEqual({ evidence: '3b4e364', status: 'ok' })
+
+    const packaged = resolveBuildIdentity({ gitSha: null, buildId: 'uhsW_2XIIpicOVDOn8Pdo', version: '1.2.2' })
+    expect(packaged.status).toBe('ok')
+    expect(packaged.evidence).toContain('1.2.2')
+    expect(packaged.evidence).toContain('uhsW_2XIIpicOVDOn8Pdo')
+
+    const nothing = resolveBuildIdentity({ gitSha: null, buildId: null, version: null })
+    expect(nothing).toEqual({ evidence: 'desconhecido', status: 'unknown' })
   })
 
   it('reports the real watchdog state in the self-check', async () => {
