@@ -1,6 +1,7 @@
 import fs from 'fs'
 import http from 'http'
 import net from 'net'
+import os from 'os'
 import path from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { dataDir } from '@/lib/agents/fsutil'
@@ -306,6 +307,27 @@ describe('self-check', () => {
     expect(data.fixes?.some(f => f.action === 'clean-tmp')).toBe(true)
     expect(report.checks.find(c => c.id === 'deps')?.status).toBe('ok')
     fs.rmSync(path.join(root, 'broken.json'))
+  })
+
+  it('does not flag JSONC tsconfig files with comments as corrupted', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-jsonc-'))
+    try {
+      fs.mkdirSync(path.join(root, 'openwa', 'app'), { recursive: true })
+      fs.writeFileSync(path.join(root, 'openwa', 'app', 'tsconfig.json'), [
+        '{',
+        '  // TypeScript 6 requires an explicit layout anchor',
+        '  "compilerOptions": {',
+        '    "module": "nodenext" /* inline comment */,',
+        '    "url": "https://example.com/a//b"',
+        '  }',
+        '}',
+      ].join('\n'))
+      const scan = scanData(root)
+      expect(scan.files).toBe(1)
+      expect(scan.corrupt).toEqual([])
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('flags steady heap growth as a probable leak but not normal noise', () => {
