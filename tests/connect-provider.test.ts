@@ -77,7 +77,14 @@ describe('conectar com URL e chave: servidores de verdade', () => {
           if (url === '/an/v1/messages' && req.headers['x-api-key'] === KEY) return json(res, 200, { id: 'm', type: 'message', role: 'assistant', content: [{ type: 'text', text: '12' }], stop_reason: 'end_turn', usage: { input_tokens: 5, output_tokens: 1 } })
           return json(res, req.headers.authorization ? 404 : 401, { error: { message: 'nope' } })
         }
-        // 4) API que não lista modelos
+        // 4) Gateway que lista modelos em formato OpenAI mas só conversa em Anthropic Messages
+        if (url.startsWith('/pm/')) {
+          if (url === '/pm/models' && bearer) return json(res, 200, { data: [{ id: 'MiniMax-M3' }] })
+          if (url === '/pm/chat/completions') return json(res, 400, { error: 'protocol_mismatch', message: 'No compatible provider available for this request format' })
+          if ((url === '/pm/messages' || url === '/pm/v1/messages') && req.headers['x-api-key'] === KEY) return json(res, 200, { id: 'm', type: 'message', role: 'assistant', content: [{ type: 'text', text: '12' }], stop_reason: 'end_turn', usage: { input_tokens: 5, output_tokens: 1 } })
+          return json(res, 404, { error: 'not found' })
+        }
+        // 5) API que não lista modelos
         if (url.startsWith('/nolist/')) {
           if (url === '/nolist/v1/chat/completions' && bearer) return json(res, 200, chat('meu-modelo'))
           return json(res, 404, { error: 'not found' })
@@ -111,6 +118,12 @@ describe('conectar com URL e chave: servidores de verdade', () => {
     const r = await connectProvider({ baseUrl: `${base}/an`, apiKey: KEY })
     expect(r.detected.style).toBe('anthropic')
     expect(r.test).toMatchObject({ ok: true, model: 'claude-haiku-x' })
+  })
+  it('gateway que só fala Anthropic é corrigido após protocol_mismatch no chat', async () => {
+    const r = await connectProvider({ baseUrl: `${base}/pm`, apiKey: KEY })
+    expect(r.test.ok).toBe(true)
+    expect(r.provider.style).toBe('anthropic')
+    expect(r.detected.style).toBe('anthropic')
   })
   it('chave errada: avisa que a chave foi recusada', async () => {
     await expect(connectProvider({ baseUrl: `${base}/ds`, apiKey: 'sk-errada' })).rejects.toThrow(/recusou a chave/)

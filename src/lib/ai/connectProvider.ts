@@ -142,27 +142,53 @@ export async function connectProvider(input: { baseUrl: string; apiKey: string; 
   const ids = manual && (!probe.models.length || probe.models.some(m => m.id === manual))
     ? [manual]
     : testOrder(probe.models.filter(m => !(provider.freeOnly && m.paid)).map(m => m.id)).slice(0, 3)
-  let test: ConnectResult['test'] = { ok: false, error: 'nenhum modelo para testar' }
-  const tried: string[] = []
-  for (const model of ids) {
-    const fullId = `${provider.id}${SEP}${model}`
-    const t0 = Date.now()
-    try {
-      const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000)
-      const { text } = await completeOnce(fullId, [{ role: 'user', content: 'Quanto é 7+5? Responda só com o número.' }], signal)
-      const ms = Date.now() - t0
-      if (/\b12\b/.test(text)) {
-        recordModelTest(fullId, { ok: true, ms })
-        test = { ok: true, model, latencyMs: ms, answer: text.slice(0, 120) }
-        break
+  async function tryChat(p: CustomProvider) {
+    let result: ConnectResult['test'] = { ok: false, error: 'nenhum modelo para testar' }
+    const attempts: string[] = []
+    let protocolMismatch = false
+    for (const model of ids) {
+      const fullId = `${p.id}${SEP}${model}`
+      const t0 = Date.now()
+      try {
+        const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000)
+        const { text } = await completeOnce(fullId, [{ role: 'user', content: 'Quanto é 7+5? Responda só com o número.' }], signal)
+        const ms = Date.now() - t0
+        if (/\b12\b/.test(text)) {
+          recordModelTest(fullId, { ok: true, ms })
+          result = { ok: true, model, latencyMs: ms, answer: text.slice(0, 120) }
+          break
+        }
+        result = { ok: false, model, latencyMs: ms, answer: text.slice(0, 120), error: 'respondeu, mas errou a conta 7+5' }
+      } catch (e) {
+        if (input.signal?.aborted) throw e
+        const msg = (e as Error).message.slice(0, 300)
+        if (/protocol_mismatch|no compatible provider available for this request format/i.test(msg)) protocolMismatch = true
+        result = { ok: false, model, latencyMs: Date.now() - t0, error: msg }
       }
-      test = { ok: false, model, latencyMs: ms, answer: text.slice(0, 120), error: 'respondeu, mas errou a conta 7+5' }
-    } catch (e) {
-      if (input.signal?.aborted) throw e
-      test = { ok: false, model, latencyMs: Date.now() - t0, error: (e as Error).message.slice(0, 300) }
+      attempts.push(`${model}: ${result.error}`)
     }
-    tried.push(`${model}: ${test.error}`)
+    if (!result.ok && attempts.length > 1) result.tried = attempts
+    return { result, protocolMismatch }
   }
-  if (!test.ok && tried.length > 1) test.tried = tried
-  return { provider, models: probe.models, test, detected: { baseUrl: probe.baseUrl, style: probe.style, auth: probe.auth } }
+
+  let { result: test, protocolMismatch } = await tryChat(provider)
+  let saved = provider
+  if (!test.ok && protocolMismatch && ids.length) {
+    // /models não prova o formato do chat: há gateway que lista em OpenAI e só responde em Anthropic.
+    const alternate: ApiStyle = probe.style === 'openai' ? 'anthropic' : 'openai'
+    saved = upsertCustomProvider({
+      id: provider.id,
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      style: alternate,
+      apiKey: undefined, // mantém a chave já salva
+      manualModels: provider.manualModels,
+      freeOnly: provider.freeOnly,
+      auth: alternate === 'anthropic' ? 'x-api-key' : provider.auth,
+    })
+    probe.style = alternate
+    const retry = await tryChat(saved)
+    if (retry.result.ok || !retry.protocolMismatch) test = retry.result
+  }
+  return { provider: saved, models: probe.models, test, detected: { baseUrl: probe.baseUrl, style: probe.style, auth: probe.auth } }
 }
