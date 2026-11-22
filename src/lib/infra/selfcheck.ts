@@ -47,6 +47,55 @@ const SKIP_DIRS = new Set(['backups', 'restores', 'npm-cache', 'extensions', 'no
 
 interface DataScan { files: number; corrupt: string[]; quarantined: Array<{ rel: string; original: string; originalMissing: boolean }>; staleTmp: string[] }
 
+/**
+ * Vendored source trees under data/ (e.g. OpenWA) ship tsconfig files as JSONC: comments are
+ * legal there and accepted by tsc. Replace only comment characters, never string contents
+ * (a URL such as https://x//y must survive), so real parse errors are still detected.
+ */
+function stripJsonComments(text: string): string {
+  let out = ''
+  let i = 0
+  let inString = false
+  let escaped = false
+  while (i < text.length) {
+    const c = text[i]
+    if (inString) {
+      out += c
+      if (escaped) escaped = false
+      else if (c === '\\') escaped = true
+      else if (c === '"') inString = false
+      i++
+      continue
+    }
+    if (c === '"') {
+      inString = true
+      out += c
+      i++
+      continue
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      out += '  '
+      i += 2
+      while (i < text.length && text[i] !== '\n' && text[i] !== '\r') { out += ' '; i++ }
+      continue
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      out += '  '
+      i += 2
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
+        const ch = text[i]
+        out += ch === '\n' || ch === '\r' ? ch : ' '
+        i++
+      }
+      if (i < text.length) { out += '  '; i += 2 }
+      continue
+    }
+    out += c
+    i++
+  }
+  return out
+}
+
 export function scanData(root = dataDir()): DataScan {
   const out: DataScan = { files: 0, corrupt: [], quarantined: [], staleTmp: [] }
   const walk = (dir: string, depth: number) => {
@@ -72,7 +121,7 @@ export function scanData(root = dataDir()): DataScan {
       try {
         const st = fs.statSync(abs)
         if (st.size > 50 * 1048576) continue
-        JSON.parse(fs.readFileSync(abs, 'utf-8'))
+        JSON.parse(stripJsonComments(fs.readFileSync(abs, 'utf-8')))
       } catch { out.corrupt.push(rel) }
     }
   }
