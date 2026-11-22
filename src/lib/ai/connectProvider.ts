@@ -176,7 +176,8 @@ export async function connectProvider(input: { baseUrl: string; apiKey: string; 
   if (!test.ok && protocolMismatch && ids.length) {
     // /models não prova o formato do chat: há gateway que lista em OpenAI e só responde em Anthropic.
     const alternate: ApiStyle = probe.style === 'openai' ? 'anthropic' : 'openai'
-    saved = upsertCustomProvider({
+    const alternateAuth: AuthMode = alternate === 'anthropic' ? 'x-api-key' : 'bearer'
+    const trial = upsertCustomProvider({
       id: provider.id,
       name: provider.name,
       baseUrl: provider.baseUrl,
@@ -184,11 +185,31 @@ export async function connectProvider(input: { baseUrl: string; apiKey: string; 
       apiKey: undefined, // mantém a chave já salva
       manualModels: provider.manualModels,
       freeOnly: provider.freeOnly,
-      auth: alternate === 'anthropic' ? 'x-api-key' : provider.auth,
+      auth: alternateAuth,
     })
     probe.style = alternate
-    const retry = await tryChat(saved)
+    probe.auth = alternateAuth
+    const retry = await tryChat(trial)
     if (retry.result.ok || !retry.protocolMismatch) test = retry.result
+    if (retry.result.ok) {
+      saved = trial
+    } else {
+      // A troca é gravada antes do retry porque é assim que a conversa passa a usar o outro formato.
+      // Se o retry falhou, volta ao estado anterior: não deixar uma config não validada no lugar de
+      // uma que já funcionava (e não dizer "conectado" com um formato que não provou funcionar).
+      saved = upsertCustomProvider({
+        id: provider.id,
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        style: provider.style,
+        apiKey: undefined,
+        manualModels: provider.manualModels,
+        freeOnly: provider.freeOnly,
+        auth: provider.auth,
+      })
+      probe.style = provider.style
+      probe.auth = provider.auth
+    }
   }
   return { provider: saved, models: probe.models, test, detected: { baseUrl: probe.baseUrl, style: probe.style, auth: probe.auth } }
 }

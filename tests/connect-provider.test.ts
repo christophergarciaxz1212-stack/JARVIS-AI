@@ -81,10 +81,20 @@ describe('conectar com URL e chave: servidores de verdade', () => {
         if (url.startsWith('/pm/')) {
           if (url === '/pm/models' && bearer) return json(res, 200, { data: [{ id: 'MiniMax-M3' }] })
           if (url === '/pm/chat/completions') return json(res, 400, { error: 'protocol_mismatch', message: 'No compatible provider available for this request format' })
-          if ((url === '/pm/messages' || url === '/pm/v1/messages') && req.headers['x-api-key'] === KEY) return json(res, 200, { id: 'm', type: 'message', role: 'assistant', content: [{ type: 'text', text: '12' }], stop_reason: 'end_turn', usage: { input_tokens: 5, output_tokens: 1 } })
+          if (url === '/pm/v1/messages' && req.headers['x-api-key'] === KEY) return json(res, 200, { id: 'm', type: 'message', role: 'assistant', content: [{ type: 'text', text: '12' }], stop_reason: 'end_turn', usage: { input_tokens: 5, output_tokens: 1 } })
           return json(res, 404, { error: 'not found' })
         }
-        // 5) API que não lista modelos
+        // 5) Retry com o outro formato também falha: erro real deve aparecer, sem trocar a config salva
+        if (url.startsWith('/pf/') || url.startsWith('/pff/')) {
+          const pff = url.startsWith('/pff/')
+          const mismatch = { error: 'protocol_mismatch', message: 'No compatible provider available for this request format' }
+          if (url === '/pf/models' && bearer) return json(res, 200, { data: [{ id: 'Broken-M3' }] })
+          if (url === '/pff/models' && bearer) return json(res, 200, { data: [{ id: 'Broken-M3' }] })
+          if (url.endsWith('/chat/completions')) return json(res, 400, mismatch)
+          if (url.endsWith('/v1/messages')) return json(res, 400, pff ? mismatch : { error: { message: 'modelo indisponível no gateway' } })
+          return json(res, 404, { error: 'not found' })
+        }
+        // 6) API que não lista modelos
         if (url.startsWith('/nolist/')) {
           if (url === '/nolist/v1/chat/completions' && bearer) return json(res, 200, chat('meu-modelo'))
           return json(res, 404, { error: 'not found' })
@@ -120,10 +130,31 @@ describe('conectar com URL e chave: servidores de verdade', () => {
     expect(r.test).toMatchObject({ ok: true, model: 'claude-haiku-x' })
   })
   it('gateway que só fala Anthropic é corrigido após protocol_mismatch no chat', async () => {
+    const { publicView, readCustomProviders } = await import('@/lib/ai/customProviders')
     const r = await connectProvider({ baseUrl: `${base}/pm`, apiKey: KEY })
     expect(r.test.ok).toBe(true)
     expect(r.provider.style).toBe('anthropic')
-    expect(r.detected.style).toBe('anthropic')
+    expect(r.detected).toMatchObject({ style: 'anthropic', auth: 'x-api-key' })
+    expect(publicView(readCustomProviders().find(p => p.id === r.provider.id)!).hasKey).toBe(true)
+    expect(JSON.stringify(r)).not.toContain(KEY)
+  })
+  it('retry que falha com outro erro: mostra o erro real e desfaz a troca de formato', async () => {
+    const { publicView, readCustomProviders } = await import('@/lib/ai/customProviders')
+    const r = await connectProvider({ baseUrl: `${base}/pf`, apiKey: KEY })
+    expect(r.test.ok).toBe(false)
+    expect(r.test.error).toMatch(/modelo indisponível no gateway/)
+    expect(r.provider.style).toBe('openai')
+    expect(r.detected).toMatchObject({ style: 'openai', auth: 'bearer' })
+    expect(readCustomProviders().find(p => p.id === r.provider.id)?.style).toBe('openai')
+    expect(publicView(readCustomProviders().find(p => p.id === r.provider.id)!).hasKey).toBe(true)
+    expect(JSON.stringify(r)).not.toContain(KEY)
+  })
+  it('retry que também dá protocol_mismatch: mantém o erro original e a config original', async () => {
+    const r = await connectProvider({ baseUrl: `${base}/pff`, apiKey: KEY })
+    expect(r.test.ok).toBe(false)
+    expect(r.test.error).toMatch(/protocol_mismatch/)
+    expect(r.provider.style).toBe('openai')
+    expect(r.detected.style).toBe('openai')
   })
   it('chave errada: avisa que a chave foi recusada', async () => {
     await expect(connectProvider({ baseUrl: `${base}/ds`, apiKey: 'sk-errada' })).rejects.toThrow(/recusou a chave/)
