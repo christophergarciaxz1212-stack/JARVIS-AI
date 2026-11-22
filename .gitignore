@@ -1,7 +1,7 @@
 .next/
 .next-*/
 node_modules/
-.env.local
+.env*
 .venv/
 __pycache__/
 data/
@@ -10,7 +10,7 @@ data/
 *.db-wal
 .DS_Store
 
-# Distribuição
+# Distribuiï¿½ï¿½o
 release-staging/
 release/
 

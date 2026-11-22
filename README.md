@@ -2,6 +2,15 @@
 
 Workspace de engenharia com inteligência artificial — para profissionais de infraestrutura, redes, desenvolvimento, suporte e toda área de tecnologia.
 
+### ⬇️ [Baixar a versão mais recente](../../releases/latest)
+
+| Arquivo | Para quem |
+|---|---|
+| `JARVIS-AI-Setup-x.y.z.exe` | Instalador: Avançar → Instalar → Concluir. Cria atalhos e desinstalador. |
+| `JARVIS-Portable.zip` | Sem instalação: extraia e abra `JARVIS AI.exe`. |
+
+Instalação completa, com solução de problemas: [INSTALACAO.md](INSTALACAO.md). Uso e distribuição: [LICENCA.md](LICENCA.md).
+
 ## O que é
 
 - **Chat natural** — fale o resultado que você quer e o JARVIS entrega (código, análises, infra, relatórios, design).
@@ -9,6 +18,8 @@ Workspace de engenharia com inteligência artificial — para profissionais de i
 - **Multi-agente** — equipes de IA especializadas colaboram em paralelo (backend, frontend, DevOps, QA).
 - **Lab de redes (Topologia EVE-NG)** — digite "crie uma rede para uma empresa com três departamentos" e veja o diagrama completo com interfaces, sub-redes, portas e validação.
 - **Infraestrutura real** — inventário, diagnósticos, portas, Docker, backups e monitoramento do seu PC e de servidores registados (via SSH).
+- **Estúdio de Vídeo — 3 modelos** — **Vídeos** (verticais animados: passos, notícia, dados ou analogia), **Comercial** (app ou produto) e **Publicitário** (filme de campanha), com narração, legendas e revisão automática dos quadros.
+- **Empresas e comércios próximos** — "quais padarias tem perto da Savassi, BH": telefone, WhatsApp, site, horário e planilha Excel, com dados abertos do OpenStreetMap (quem ainda não tem site primeiro).
 - **Conselho de IA (`/council`)** — vários modelos respondem a mesma pergunta em paralelo e o árbitro consolida a melhor resposta, com latência e tokens reais por especialista.
 - **Self-Improvement (`/self-improve`)** — varredura determinística do próprio código + as 5 melhorias de maior impacto, medidas, nada alterado sem aprovação.
 - **Social (Instagram/TikTok)** — vídeos produzidos pelo JARVIS sobem para o Metricool como rascunho com legenda gerada por IA; com `SOCIAL_AUTOPOST=1` no `.env.local` e instrução explícita, a publicação é agendada. Nada vai para o ar sem seu clique.
