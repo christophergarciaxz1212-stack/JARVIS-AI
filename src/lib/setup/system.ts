@@ -73,9 +73,9 @@ function platformInfo() {
   return { id: 'linux' as const, label, version: release, arch: os.arch() }
 }
 
-function gpuInfo(): SetupReport['gpu'] {
+async function gpuInfo(): Promise<SetupReport['gpu']> {
   // NVIDIA primeiro (nvidia-smi é confiável quando instalado)
-  const smi = safeExec('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], 5_000)
+  const smi = await safeExecAsync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], 5_000)
   if (smi.ok && smi.out.trim()) {
     const [name, mem] = smi.out.trim().split(',').map(s => s.trim())
     const vramMB = Number(mem)
@@ -83,7 +83,7 @@ function gpuInfo(): SetupReport['gpu'] {
   }
   // Windows sem nvidia-smi: tenta WMI/CIM (AMD/Intel)
   if (os.platform() === 'win32') {
-    const cim = safeExec('powershell', ['-NoProfile', '-Command', 'Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress'], 8_000)
+    const cim = await safeExecAsync('powershell', ['-NoProfile', '-Command', 'Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress'], 8_000)
     if (cim.ok && cim.out.trim() && cim.out.includes('Name')) {
       try {
         const parsed = JSON.parse(cim.out)
@@ -132,10 +132,10 @@ async function internetCheck(): Promise<SetupReport['internet']> {
   }
 }
 
-function toolsCheck() {
+async function toolsCheck(): Promise<{ winget: { ok: boolean; detail: string }; git: { ok: boolean; detail: string } }> {
   const isWin = os.platform() === 'win32'
-  const winget = isWin ? safeExec('winget', ['--version'], 5_000) : { ok: false, out: '' }
-  const git = safeExec('git', ['--version'], 5_000)
+  const winget = isWin ? await safeExecAsync('winget', ['--version'], 5_000) : { ok: false as const, out: '' }
+  const git = await safeExecAsync('git', ['--version'], 5_000)
   return {
     winget: { ok: winget.ok, detail: winget.ok ? winget.out.trim() : 'WinGet não disponível' },
     git: { ok: git.ok, detail: git.ok ? git.out.trim() : 'git não encontrado no PATH' },
@@ -225,10 +225,10 @@ export async function detectSystem(): Promise<SetupReport> {
   const ramTotalGB = Math.round((os.totalmem() / 1024 / 1024 / 1024) * 100) / 100
   const ramFreeGB = Math.round((os.freemem() / 1024 / 1024 / 1024) * 100) / 100
   const disk = diskInfo()
-  const gpu = gpuInfo()
-  const isAdmin = os.platform() === 'win32' ? safeExec('net', ['session'], 3_000).ok : (typeof (os as any).getuid === 'function' ? (os as any).getuid() === 0 : false)
+  const gpu = await gpuInfo()
+  const isAdmin = os.platform() === 'win32' ? (await safeExecAsync('net', ['session'], 3_000)).ok : (typeof (os as any).getuid === 'function' ? (os as any).getuid() === 0 : false)
   const internet = await internetCheck()
-  const tools = toolsCheck()
+  const tools = await toolsCheck()
   const chrome = chromeCheck()
   const nodeCheck = { ok: true, detail: `Node ${process.version} (processo do JARVIS)` }
   const ollama = await ollamaCheck()

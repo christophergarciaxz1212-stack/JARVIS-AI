@@ -3,7 +3,7 @@ import { spawn } from 'child_process'
 import { StringDecoder } from 'string_decoder'
 import fs from 'fs'
 
-import { isSafeCommand as isSafe, killTree, runWithShell, shellEnv, shellInvocation, preferredShell, type ShellKind } from '@/lib/shell'
+import { isSafeAgentCommand, killTree, runWithShell, shellEnv, shellInvocation, preferredShell, type ShellKind } from '@/lib/shell'
 
 const STREAM_TIMEOUT_MS = 120_000
 const MAX_COMMAND_LEN = 4000
@@ -20,9 +20,10 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: `Comando muito longo (máx. ${MAX_COMMAND_LEN} caracteres)` }, { status: 400 })
     }
 
-    if (!isSafe(command)) {
+    const blocked = isSafeAgentCommand(command)
+    if (blocked) {
       return Response.json({
-        error: 'Comando bloqueado por segurança. Comandos destrutivos requerem confirmação explícita.',
+        error: `Comando bloqueado por segurança: ${blocked}`,
       }, { status: 403 })
     }
 

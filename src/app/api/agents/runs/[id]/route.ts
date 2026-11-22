@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getRuntime } from '@/lib/agents/runtime'
+import { ROLE_MAP } from '@/lib/agents/roles'
 import { acceptFile, revertFile } from '@/lib/agents/changes'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -39,9 +40,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       case 'agent-stop': ctrl.stopAgent(agentId); break
       case 'agent-restart': ctrl.restartAgent(agentId); break
       case 'agent-remove': ctrl.removeAgent(agentId); break
-      case 'agent-add':
-        ctrl.addAgent({ roleId: String(body.roleId || 'fullstack'), model: String(body.model || 'auto'), name: body.name, scope: body.scope, responsibilities: body.responsibilities })
+      case 'agent-add': {
+        const roleId = String(body.roleId || 'fullstack')
+        if (!ROLE_MAP.has(roleId)) return Response.json({ error: `Papel desconhecido "${roleId}": use um dos papéis da equipe` }, { status: 400 })
+        ctrl.addAgent({ roleId, model: String(body.model || 'auto'), name: body.name, scope: body.scope, responsibilities: body.responsibilities })
         break
+      }
       case 'agent-config':
         ctrl.configureAgent(agentId, { model: body.model, name: body.name, scope: body.scope, responsibilities: body.responsibilities })
         break
@@ -61,6 +65,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       case 'plan-reject':
         if (!ctrl.rejectPlan()) return Response.json({ error: 'Esta execução não está esperando aprovação de plano' }, { status: 409 })
         break
+      case 'cancel-task': {
+        const taskId = String(body.taskId || '')
+        if (!taskId) return Response.json({ error: 'Informe a tarefa a cancelar' }, { status: 400 })
+        if (!ctrl.cancelTask(taskId)) return Response.json({ error: 'Tarefa não encontrada nesta execução' }, { status: 404 })
+        break
+      }
       case 'message':
         ctrl.userMessage(String(body.to || 'all'), String(body.content || ''))
         break

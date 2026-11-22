@@ -22,38 +22,48 @@ export default function StatusBar({
   connected: number | null
 }) {
   return (
-    <footer className="statusbar" role="status" aria-label="Status do JARVIS">
-      <span className="statusbar-item" title={streaming ? 'O JARVIS está trabalhando' : 'Aguardando a próxima ordem'}>
-        <span className={`statusbar-dot ${streaming ? 'busy' : 'on'}`} aria-hidden />
-        <strong>{streaming ? 'TRABALHANDO' : 'PRONTO'}</strong>
+    <footer
+      className="jv-row h-[22px] px-3 text-[8.5px] text-[var(--jv-muted)] bg-[var(--jv-bg-deep)]"
+      style={{ fontFamily: 'var(--jv-font-mono)' }}
+      role="status"
+      aria-label="Status do JARVIS"
+    >
+      <span className="jv-status">
+        <span className={`jv-status-dot ${streaming ? 'jv-status-dot-ok jv-status-dot-pulse-ok' : 'jv-status-dot-ok'}`} aria-hidden />
+        <span>{streaming ? 'TRABALHANDO' : 'Início'}</span>
       </span>
 
-      <span className="statusbar-sep" aria-hidden />
+      <span className="h-[8px] w-px bg-[var(--jv-border-subtle)] flex-shrink-0" aria-hidden />
 
-      <span className="statusbar-item" title={agentMode ? 'Modo agente: executa arquivos e comandos' : 'Modo chat: apenas responde'}>
-        <Zap size={10} className={agentMode ? 'text-emerald-400' : 'text-white/25'} />
-        {agentMode ? 'AGENTE' : 'CHAT'}
+      <span className="jv-status">
+        <Zap size={10} className={agentMode ? 'text-emerald-400' : 'text-white/25'} aria-hidden />
+        <span>{agentMode ? 'AI agente' : 'CHAT'}</span>
       </span>
 
-      <span className="statusbar-sep" aria-hidden />
+      <span className="h-[8px] w-px bg-[var(--jv-border-subtle)] flex-shrink-0" aria-hidden />
 
-      <span className="statusbar-item min-w-0" title="Modelo ativo">
+      <span className="jv-status min-w-0">
         <Circle size={6} className="text-cyan-400 fill-cyan-400" aria-hidden />
         <span className="truncate">{model ? shortModelName(model) : 'nenhum modelo'}</span>
       </span>
 
-      <span className="statusbar-right">
-        <span className="statusbar-item" title="Projeto atual">
-          <ChevronRight size={10} className="text-white/20" aria-hidden />
-          <span className="truncate max-w-[140px]">{projectId}</span>
-        </span>
-        <span className="statusbar-sep" aria-hidden />
-        <span className="statusbar-item" title="Provedores conectados com chave válida">
-          {connected === null ? '… provedores' : connected === 0 ? 'sem IA conectada' : `${connected} provedor${connected > 1 ? 'es' : ''}`}
-        </span>
-        <span className="statusbar-sep" aria-hidden />
-        <span className="statusbar-item" title="Versão do JARVIS">v{pkg.version}</span>
+      <span className="h-[8px] w-px bg-[var(--jv-border-subtle)] flex-shrink-0" aria-hidden />
+
+      <span className="jv-status min-w-0">
+        <ChevronRight size={10} className="text-white/20" aria-hidden />
+        <span className="truncate max-w-[140px]">{projectId}</span>
       </span>
+
+      <span className="h-[8px] w-px bg-[var(--jv-border-subtle)] flex-shrink-0" aria-hidden />
+
+      <span className="jv-status">
+        <span className={`jv-status-dot ${connected === null ? 'jv-status-dot-idle' : connected === 0 ? 'jv-status-dot-fail' : 'jv-status-dot-ok jv-status-dot-pulse-ok'}`} aria-hidden />
+        <span>{connected === null ? 'Total…' : `Total: ${connected}`}</span>
+      </span>
+
+      <span className="h-[8px] w-px bg-[var(--jv-border-subtle)] flex-shrink-0" aria-hidden />
+
+      <span className="jv-status" title="Versão do JARVIS">v{pkg.version}</span>
     </footer>
   )
 }

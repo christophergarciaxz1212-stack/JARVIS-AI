@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Bot, Clapperboard, Database, GraduationCap, HelpCircle, ImageIcon, KeyRound, Mic, Monitor, Palette, RotateCcw, Settings, Sparkles, X } from 'lucide-react'
+import { Activity, Bot, Clapperboard, Database, GraduationCap, HelpCircle, ImageIcon, KeyRound, Mic, Monitor, Palette, RotateCcw, Settings, Sparkles, Users, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Modal, ModelPicker } from '@/components/agents/shared'
 import { savePrefs, usePrefs, type Prefs } from './usePrefs'
 import VoiceSettings from './VoiceSettings'
 import ImageSettings from './ImageSettings'
+import AuditPanel from './AuditPanel'
 
-type Section = 'geral' | 'ia' | 'voz' | 'imagens' | 'agente' | 'aparencia' | 'desktop' | 'hub' | 'motion' | 'dados' | 'ajuda'
+type Section = 'geral' | 'ia' | 'voz' | 'imagens' | 'agente' | 'equipes' | 'diagnostico' | 'aparencia' | 'desktop' | 'hub' | 'motion' | 'dados' | 'ajuda'
 
 const ACCENT_SWATCHES: Array<[Prefs['appearance']['accent'], string, string]> = [
   ['cyan', 'Ciano', '#22d3ee'], ['mono', 'Preto e branco', 'linear-gradient(135deg,#fff 50%,#111 50%)'], ['blue', 'Azul', '#60a5fa'],
@@ -22,6 +23,8 @@ const SECTIONS: Array<{ id: Section; label: string; icon: typeof Settings }> = [
   { id: 'voz', label: 'Voz', icon: Mic },
   { id: 'imagens', label: 'Imagens', icon: ImageIcon },
   { id: 'agente', label: 'Modo agente', icon: Bot },
+  { id: 'equipes', label: 'Equipes de IA', icon: Users },
+  { id: 'diagnostico', label: 'Diagnóstico de IAs', icon: Activity },
   { id: 'aparencia', label: 'Aparência', icon: Palette },
   { id: 'desktop', label: 'Desktop e desempenho', icon: Monitor },
   { id: 'hub', label: 'Hub Escolar', icon: GraduationCap },
@@ -96,6 +99,18 @@ export default function SettingsPanel({ onClose, onOpenKeys, model, onModel, aut
               {section === 'voz' && <VoiceSettings prefs={prefs} set={set} onOpenKeys={() => { onClose(); onOpenKeys() }} />}
 
               {section === 'imagens' && <ImageSettings prefs={prefs} set={set} onOpenKeys={() => { onClose(); onOpenKeys() }} />}
+
+              {section === 'equipes' && <>
+                <div className="jv-card jv-card-pad space-y-2">
+                  <div className="text-sm font-semibold text-white">Trabalho colaborativo</div>
+                  <p className="jv-muted-text">Uma equipe tem um líder que divide a missão entre especialistas. Eles trabalham em paralelo, trocam mensagens e pedem revisão cruzada antes da entrega. Acompanhe tudo pela aba <strong className="text-white/70">Equipe</strong> no workspace de agentes.</p>
+                </div>
+                <Range label="Quantos agentes trabalham ao mesmo tempo" hint="Cada agente fica com uma tarefa por vez; tarefas independentes rodam em paralelo." value={prefs.agent.maxParallel} min={1} max={8} onChange={v => set({ agent: { ...prefs.agent, maxParallel: v } })} />
+                <Range label="Rodadas de correção após a revisão" hint="Se QA ou Segurança apontarem problemas, o agente responsável recebe uma tarefa de correção e depois é verificado novamente." value={prefs.agent.fixRounds} min={0} max={3} onChange={v => set({ agent: { ...prefs.agent, fixRounds: v } })} />
+                <p className="jv-hint">O diagnóstico na barra lateral (Diag.) mostra se as equipes e os modelos estão funcionando.</p>
+              </>}
+
+              {section === 'diagnostico' && <AuditPanel />}
 
               {section === 'agente' && <>
                 <Toggle label="Começar com o modo agente ligado" hint="Recomendado. O JARVIS executa de verdade: lê e edita arquivos, roda comandos e mostra cada passo ao vivo." value={prefs.agentModeDefault} onChange={v => set({ agentModeDefault: v })} />

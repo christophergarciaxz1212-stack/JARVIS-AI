@@ -1,14 +1,15 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Clapperboard, GraduationCap, KeyRound, MessageCircle, MessageSquare, Package, Settings, TrendingUp, Users } from 'lucide-react'
+import { Clapperboard, GraduationCap, KeyRound, MessageCircle, MessageSquare, Package, Settings, Stethoscope, TrendingUp, Users } from 'lucide-react'
 import JarvisLogo from '@/components/chat/JarvisLogo'
 
-export type RailItem = 'chat' | 'team' | 'hub' | 'social' | 'motion' | 'skills' | 'whatsapp'
+export type RailItem = 'chat' | 'team' | 'hub' | 'social' | 'motion' | 'skills' | 'whatsapp' | 'diagnostics'
 
 const ITEMS: Array<{ id: RailItem; label: string; hint: string; icon: typeof MessageSquare }> = [
   { id: 'chat', label: 'Chat', hint: 'Nova conversa (Ctrl+N)', icon: MessageSquare },
-  { id: 'team', label: 'Equipe', hint: 'Sessão com equipe de agentes', icon: Users },
+  { id: 'team', label: 'Equipes', hint: 'Sessão com equipe de agentes', icon: Users },
+  { id: 'diagnostics', label: 'Diag.', hint: 'Diagnóstico: módulos, falhas e atenções', icon: Stethoscope },
   { id: 'hub', label: 'Faculdade', hint: 'Hub Escolar: disciplinas, provas e trabalhos', icon: GraduationCap },
   { id: 'social', label: 'Social', hint: 'Instagram e TikTok (Metricool)', icon: TrendingUp },
   { id: 'motion', label: 'Estúdio', hint: 'Estúdio de Vídeo: produção audiovisual com IA', icon: Clapperboard },

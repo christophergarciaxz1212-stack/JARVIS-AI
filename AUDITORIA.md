@@ -182,3 +182,33 @@ O usuário pediu que os CLIs de IA instalados na máquina tivessem seus **modelo
 ## Pendências
 
 Ver seção PENDENTE do relatório final. Resumo: chaves pagas órfãs em `keys.json` (decisão do usuário), provedores sem chave sem teste real possível, `deepseek-r1:8b` lento por natureza, **`npm run sync-packaged` pendente** para levar o build novo (com a ponte Antigravity) à instalação que a área de trabalho abre (`AppData\Local\Programs\JARVIS`) — **o app instalado continua na versão antiga até você sincronizar/reinstalar**. O Antigravity divide a cota grátis com a IDE/CLI.
+
+---
+
+## Revisão geral, reparação e evolução (21/11/2026, 7ª rodada — OpenCode)
+
+**Auditores**: 5 paralelos; E2 (Electron/infra) e C2 (agentes/equipes) entregaram relatórios completos; D3 (terminal/arquivos/diff) entregou sumário; A2 (UI/UX) entregou relatório completo; B2 (comunicação IA) e D2 esgotaram o limite de uso. Verificação própria cobriu os trechos pendentes (chat/SSE, diff/editor, UI).
+
+**Evidências finais (verificado às 17:50 em diante)**: `tsc --noEmit --incremental false` limpo; `eslint` 0 erros (4 warnings `<img>` locais); **`vitest run`: 777/777 testes, 75/75 arquivos, exit 0** (numa rodada anterior sob I/O concorrente do build, 2 flakes apareceram e passaram isolados 58/58 — não eram regressões); **`npm run build`: exit 0**, build de produção gerado; teste real de UI no browser: app abriu sem erros de console, 9 áreas navegadas com zero exceções e zero overflow horizontal; servidor de teste encerrado (porta 3001 livre).
+
+### Correções (problema → arquivo → rollback)
+
+| # | Correção | Arquivo(s) | Rollback |
+|---|---|---|---|
+| R7-1 | `interrupt()` espera o kill e confirma os filhos | `src/lib/terminal.ts`, `src/lib/shell.ts` | voltar `killTree` a `void spawn` e `interrupt` ao laço simples |
+| R7-2 | `readModifyWrite` no store.json (lost update) + Map em `listConversations` | `src/lib/db.ts` | restaurar `readStore/writeStore` diretos em cada mutador |
+| R7-3 | Filtro do `/api/execute` e `requestLocalExec` → `isSafeAgentCommand`; padrões destrutivos ampliados | `src/app/api/execute/route.ts`, `src/lib/infra/core.ts`, `src/lib/shell.ts` | voltar a `isSafeCommand` e aos 5 regex originais |
+| R7-4 | SSRF: redirects revalidados, IPv4-mapped e CGNAT bloqueados | `src/lib/agents/web.ts` | voltar `redirect: 'follow'` e remover as duas checagens |
+| R7-5 | Aprovações de ferramenta visíveis no workspace + RunPanel | `src/components/agents/AgentsWorkspace.tsx`, `RunPanel.tsx` | remover os dois mapas de pendências e os botões approve/deny |
+| R7-6 | Aprovação por mensagem do usuário; status honesto (failed/cancelled); retomar não apaga controller; listeners de abort limpos | `src/lib/agents/orchestrator.ts`, `runtime.ts`, `types.ts` | reverter os blocos citados no CHANGELOG |
+| R7-7 | Lock por arquivo, timeout do servidor com handler, splash não preso | `electron/main.js` | restaurar `app.on('second-instance')` e `req.setTimeout(60000)` sem handler |
+| R7-8 | `detectSystem` assíncrono; composition sem base64; netlab cacheado | `src/lib/setup/system.ts`, `studio/producer.ts`, `netlab/store.ts` | voltar `safeExec` e `data:` URIs |
+| R7-9 | WhatsApp: `flushPending` não perde mensagens e sem auto-connect | `src/lib/whatsapp/bridge.ts` | restaurar `bag.length = 0` e o auto-`waStart` |
+| R7-10 | Foco visível, ações de mensagem em foco, menu `@` por teclado | `src/app/operations.css`, `components/chat/MessageBubble.tsx`, `FileMentionMenu.tsx` | remover as regras/clauses adicionadas |
+
+### Pendências remanescentes
+- Política de modelos gratuitos inalterada; chaves pagas órfãs em `data/keys.json` continuam para decisão do usuário.
+- `deepseek-r1:8b` lento por natureza; `npm run sync-packaged` ainda pendente para a instalação em `AppData\Local\Programs\JARVIS`.
+- Avisos `<img>` do ESLint em imagens locais (não afetam runtime).
+- Testes `agent-permissions`/`terminal-sessions` falharam uma vez sob I/O concorrente do build e passaram isolados (58/58) — flake de ambiente, não regressão.
+

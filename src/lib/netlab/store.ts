@@ -22,12 +22,18 @@ export function getTopology(id: string): Topology | null {
   return t && t.id === id ? t : null
 }
 
-export function listTopologies(): Array<Pick<Topology, 'id' | 'title' | 'updatedAt'> & { nodes: number }> {
+let listCache: { at: number; rows: Array<Pick<Topology, 'id' | 'title' | 'updatedAt'> & { nodes: number }> } | null = null
+
+export async function listTopologies(): Promise<Array<Pick<Topology, 'id' | 'title' | 'updatedAt'> & { nodes: number }>> {
+  const dir = netlabDir()
+  if (listCache && Date.now() - listCache.at < 30_000) return listCache.rows
   let files: string[] = []
-  try { files = fs.readdirSync(netlabDir()).filter(f => /^[0-9a-f-]{36}\.json$/.test(f)) } catch { return [] }
-  return files.map(f => {
-    try { const t = JSON.parse(fs.readFileSync(path.join(netlabDir(), f), 'utf-8')) as Topology; return { id: t.id, title: t.title, updatedAt: t.updatedAt, nodes: t.nodes.length } } catch { return null }
+  try { files = fs.readdirSync(dir).filter(f => /^[0-9a-f-]{36}\.json$/.test(f)) } catch { listCache = { at: Date.now(), rows: [] }; return [] }
+  const rows = files.map(f => {
+    try { const t = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as Topology; return { id: t.id, title: t.title, updatedAt: t.updatedAt, nodes: t.nodes.length } } catch { return null }
   }).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => b.updatedAt - a.updatedAt)
+  listCache = { at: Date.now(), rows }
+  return rows
 }
 
 /** Only positions change from the editor (dragging): everything else goes through validation. */

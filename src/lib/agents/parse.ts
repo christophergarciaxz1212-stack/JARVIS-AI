@@ -71,12 +71,40 @@ export interface AgentTurn {
   actions: ToolAction[]
 }
 
+/** Chaves de controle de uma ação — o resto, quando não há "args", são os próprios argumentos. */
+const ACTION_KEYS = new Set(['tool', 'name', 'action', 'type', 'id', 'thought', 'function', 'args', 'arguments', 'parameters', 'params', 'input'])
+
+/**
+ * Argumentos de uma ação em qualquer dos formatos que os modelos usam na prática:
+ * {"args":{…}}, {"arguments":{…}} ou como TEXTO JSON (chamada nativa), {"parameters":{…}},
+ * {"input":{…}}, {"function":{"name","arguments"}} ou soltos ao lado de "tool"
+ * ({"tool":"write_file","path":"a.ts","content":"…"} — o Gemini Flash-Lite faz isso).
+ */
+export function actionArgs(a: Record<string, unknown>): Record<string, unknown> {
+  const fn = a.function && typeof a.function === 'object' ? a.function as Record<string, unknown> : undefined
+  for (const v of [a.args, a.arguments, a.parameters, a.params, a.input, fn?.arguments, fn?.parameters]) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>
+    if (typeof v === 'string' && v.trim().startsWith('{')) {
+      try { const o = extractJson(v); if (o && typeof o === 'object' && !Array.isArray(o)) return o as Record<string, unknown> } catch { /* texto não-JSON */ }
+    }
+  }
+  const loose: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(a)) if (!ACTION_KEYS.has(k)) loose[k] = v
+  return loose
+}
+
+function actionTool(a: Record<string, unknown>): string {
+  const fn = a.function && typeof a.function === 'object' ? (a.function as Record<string, unknown>).name : undefined
+  for (const v of [a.tool, a.name, fn, a.action]) if (typeof v === 'string' && /^[a-z_][\w.-]*$/i.test(v)) return v
+  return ''
+}
+
 export function parseAgentTurn(text: string): AgentTurn {
   const raw = extractJson(text) as Record<string, unknown>
-  const actions = Array.isArray(raw.actions) ? raw.actions : raw.tool ? [raw] : []
-  const parsed: ToolAction[] = actions
-    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && typeof (a as Record<string, unknown>).tool === 'string')
-    .map(a => ({ tool: String(a.tool), args: (a.args && typeof a.args === 'object' ? a.args : {}) as Record<string, unknown> }))
+  const list = Array.isArray(raw.actions) ? raw.actions : Array.isArray(raw.tool_calls) ? raw.tool_calls : actionTool(raw) ? [raw] : []
+  const parsed: ToolAction[] = list
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && !!actionTool(a as Record<string, unknown>))
+    .map(a => ({ tool: actionTool(a), args: actionArgs(a) }))
   if (!parsed.length) throw new Error('Nenhuma ação encontrada. Responda com {"thought": "...", "actions": [{"tool": "...", "args": {...}}]}')
   return { thought: typeof raw.thought === 'string' ? raw.thought : '', actions: parsed.slice(0, 8) }
 }

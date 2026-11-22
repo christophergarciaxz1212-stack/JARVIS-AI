@@ -273,7 +273,10 @@ async function runInstall(force: boolean) {
       signal: AbortSignal.timeout(10 * 60_000),
     })
     if (!res.ok) fail(`Download do GitHub falhou (HTTP ${res.status}).`)
+    const contentLength = Number(res.headers.get('content-length') || 0)
+    if (contentLength > 400_000_000) fail('Download grande demais (>400 MB) — baixe o tarball manualmente e reinstale.')
     const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.length > 400_000_000) fail('Download grande demais (>400 MB) — baixe o tarball manualmente e reinstale.')
     if (buf.length < 100_000) fail('Download suspeito (arquivo pequeno demais) — aborte e tente de novo.')
     step(`Download ok (${(buf.length / 1024 / 1024).toFixed(1)} MB). Extraindo…`)
     fs.writeFileSync(tarballPath(), buf)
@@ -364,9 +367,11 @@ function run(cmd: string, args: string[], opts: { timeoutMs: number; env: Record
     cwd: appDir(),
     timeout: opts.timeoutMs,
     windowsHide: true,
-    shell: isWin,
+    // shell:false na maioria; só .cmd/.bat no Windows seguem no shell (npm.cmd precisa,
+    // mas node/node dist/main executam direto).
+    shell: isWin && /\.(cmd|bat)$/i.test(cmd),
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, ...opts.env },
+    env: minimalEnv(opts.env),
     encoding: 'utf-8',
   })
   if (result.error) {

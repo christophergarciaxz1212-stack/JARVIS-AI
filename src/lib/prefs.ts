@@ -74,7 +74,7 @@ export function sanitize(p: Partial<Prefs> & Record<string, unknown>): Prefs {
     appearance: {
       motion: (['full', 'reduced', 'off'] as const).find(x => x === ap.motion) || d.appearance.motion,
       particles: typeof ap.particles === 'boolean' ? ap.particles : d.appearance.particles,
-      fontSize: (['small', 'normal', 'large'] as const).find(x => x === ap.fontSize) || 'normal',
+      fontSize: (['small', 'normal', 'large'] as const).find(x => x === ap.fontSize) || d.appearance.fontSize,
       theme: ap.theme === 'light' ? 'light' : 'dark',
       accent: ACCENTS.find(x => x === ap.accent) || d.appearance.accent,
       font: (['inter', 'system', 'mono'] as const).find(x => x === ap.font) || 'inter',

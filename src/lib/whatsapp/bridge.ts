@@ -144,23 +144,33 @@ async function renderQr(text: string): Promise<string> {
   }
 }
 
-function flushPending() {
+/** Flush com flush ativo: novas mensagens esperam o próximo ciclo, não são misturadas. */
+let flushing = false
+function scheduleFlush(delayMs = 45_000) {
+  const s = state()
+  if (!s.flushTimer) s.flushTimer = setTimeout(() => { s.flushTimer = undefined; void flushPending() }, delayMs)
+}
+async function flushPending() {
   const s = state()
   if (s.flushTimer) { clearTimeout(s.flushTimer); s.flushTimer = undefined }
-  const bag = ((s as unknown as { _pending?: HubItem[] })._pending ||= [])
+  const bag = pendingBag()
+  if (bag.length === 0 || flushing) { s.pendingCount = 0; return }
+  flushing = true
   const batch = [...bag]
-  bag.length = 0
-  s.pendingCount = 0
-  if (!batch.length) return
-  void import('../hub/hub')
-    .then(m => m.ingestLiveWhatsApp(batch))
-    .then(r => { const s2 = state(); s2.stats.ingested += r.added })
-    .catch(e => console.error('[whatsapp] ingest error', (e as Error).message))
-}
-function scheduleFlush() {
-  const s = state()
-  if (!s.flushTimer) {
-    s.flushTimer = setTimeout(() => { s.flushTimer = undefined; flushPending() }, 45_000)
+  try {
+    const m = await import('../hub/hub')
+    const r = await m.ingestLiveWhatsApp(batch)
+    // Remove da bag só depois de o ingest acabar com sucesso: se der fail, as
+    // mensagens continuam para tentar de novo — nada perdida no flush de erro.
+    bag.splice(0, batch.length)
+    s.pendingCount = bag.length
+    s.stats.ingested += r.added
+  } catch (e) {
+    console.error('[whatsapp] ingest error', (e as Error).message)
+    // Retry com backoff curto: pendentes continuam na bag (ALT-6).
+    if (!s.flushTimer) s.flushTimer = setTimeout(flushPending, 5_000)
+  } finally {
+    flushing = false
   }
 }
 function pendingBag(): HubItem[] {
@@ -178,7 +188,6 @@ function enqueue(item: HubItem) {
 export async function waStatus() {
   loadPersisted()
   const s = state()
-  if (s.status === 'disconnected' && fs.existsSync(path.join(AUTH_DIR(), 'creds.json'))) await waStart().catch(() => {})
   return {
     status: s.status,
     qr: s.qr,
@@ -190,6 +199,9 @@ export async function waStatus() {
     startedAt: s.startedAt,
   }
 }
+
+/** Ponteiro: conecta explicitamente — não auto-conecta ao pedir status (ALT-7). */
+export async function waConnect(): Promise<{ status: LiveStatus }> { return waStart() }
 
 export async function waStart(): Promise<{ status: LiveStatus }> {
   const s = state()

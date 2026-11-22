@@ -19,7 +19,7 @@ import {
   FolderOpen, PanelLeft,
   KeyRound, Users, GraduationCap, TrendingUp,
   Server, MessageSquarePlus, MessageCircle, ClipboardPaste, Layers,
-  ShieldCheck,
+  ShieldCheck, Stethoscope,
 } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
 import { toast } from 'sonner'
@@ -27,8 +27,7 @@ import type { Message, Conversation, Provider } from '@/types'
 import FilesPanel from '@/components/FilesPanel'
 import SkillEnginePanel from '@/components/engine/SkillEnginePanel'
 import HubWorkspace from '@/components/hub/HubWorkspace'
-// Implementação nova (esta sessão): integra com as rotas reais /api/whatsapp/*.
-// O scaffold anterior em ./components/whatsapp/WhatsAppCenter.tsx (outra sessão) foi preservado.
+// WhatsApp Center integrado com as rotas reais /api/whatsapp/*.
 import WhatsAppCenter from '@/components/WhatsAppCenter'
 import StudioPanel from '@/components/studio/StudioPanel'
 import StudioJobInline from '@/components/studio/StudioJobInline'
@@ -45,6 +44,8 @@ import SlashMenu from '@/components/SlashMenu'
 import ContextBar from '@/components/chat/ContextBar'
 import { useChatContext } from '@/components/chat/useChatContext'
 import SettingsPanel from '@/components/settings/SettingsPanel'
+import AppShell from '@/components/shell/AppShell'
+import DiagnosticsPanel from '@/components/DiagnosticsPanel'
 import { usePrefs } from '@/components/settings/usePrefs'
 import { post as apiPost } from '@/components/agents/api'
 import RunPanel from '@/components/agents/RunPanel'
@@ -76,17 +77,14 @@ export default function JarvisApp() {
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentModel, setCurrentModelState] = useState('')
-  const [showKeys, setShowKeys] = useState(false)
   const [connectedProviders, setConnectedProviders] = useState<number | null>(null)
   const [conversationId, setConversationId] = useState<string>('')
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [showModelManager, setShowModelManager] = useState(false)
-  const [showSkills, setShowSkills] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   // The conversation gets the room by default; the terminal/files panel opens on demand
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [rightTab, setRightTab] = useState<'run' | 'terminal' | 'memory' | 'files'>('terminal')
-  const [sidebarTab, setSidebarTab] = useState<'chat' | 'skills' | 'memory'>('chat')
+  const [sidebarTab, setSidebarTab] = useState<'chat' | 'memory'>('chat')
   const [autoModel, setAutoModel] = useState(false)
   const [projectId, setProjectIdState] = useState('geral')
   const [projects, setProjects] = useState<Project[]>([])
@@ -97,27 +95,16 @@ export default function JarvisApp() {
   const [isMicActive, setIsMicActive] = useState(false)
   const [hubOpen, setHubOpen] = useState(false)
   const [showWhatsApp, setShowWhatsApp] = useState(false)
-  const [showMotion, setShowMotion] = useState(false)
-  const [showInfra, setShowInfra] = useState(false)
-  const [showSocial, setShowSocial] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null)
   // Full-screen panels are mutually exclusive: opening one closes the others
   type OverlayName = 'keys' | 'models' | 'skills' | 'motion' | 'infra' | 'social' | 'settings'
+  const [overlay, setOverlay] = useState<OverlayName | null>(null)
   const openOverlay = useCallback((name: OverlayName, toggle = false) => {
-    setShowKeys(prev => (name === 'keys' ? (toggle ? !prev : true) : false))
-    setShowModelManager(prev => (name === 'models' ? (toggle ? !prev : true) : false))
-    setShowSkills(prev => (name === 'skills' ? (toggle ? !prev : true) : false))
-    setShowMotion(prev => (name === 'motion' ? (toggle ? !prev : true) : false))
-    setShowInfra(prev => (name === 'infra' ? (toggle ? !prev : true) : false))
-    setShowSocial(prev => (name === 'social' ? (toggle ? !prev : true) : false))
-    setShowSettings(prev => (name === 'settings' ? (toggle ? !prev : true) : false))
+    setOverlay(v => toggle ? (v === name ? null : name) : name)
   }, [])
-  const closeOverlays = useCallback(() => {
-    setShowKeys(false); setShowModelManager(false); setShowSkills(false); setShowMotion(false)
-    setShowInfra(false); setShowSocial(false); setShowSettings(false)
-  }, [])
+  const closeOverlays = useCallback(() => { setOverlay(null); setShowDiagnostics(false) }, [])
   const [prefs, updatePrefs] = usePrefs()
   const [agentMode, setAgentMode] = useState(true)
   // Relógio HUD da barra superior (atualiza 1x por segundo)
@@ -1043,7 +1030,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     { icon: MessageCircle, label: 'WhatsApp', prompt: '', open: () => { closeOverlays(); setHubOpen(false); setShowWhatsApp(true) } },
   ]
 
-  const railActive: RailItem = showWhatsApp ? 'whatsapp' : showSocial ? 'social' : showMotion ? 'motion' : showSkills ? 'skills' : hubOpen ? 'hub' : teamMode && activeSession ? 'team' : 'chat'
+  const railActive: RailItem = showWhatsApp ? 'whatsapp' : showDiagnostics ? 'diagnostics' : hubOpen ? 'hub' : teamMode && activeSession ? 'team' : 'chat'
   const onRail = (item: RailItem) => {
     if (item === 'chat') { closeOverlays(); setShowWhatsApp(false); if (hubOpen) setHubOpen(false); else newChat() }
     else if (item === 'team') { closeOverlays(); setShowWhatsApp(false); setHubOpen(false); newTeamSession() }
@@ -1051,10 +1038,11 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     else if (item === 'whatsapp') { closeOverlays(); setHubOpen(false); setShowWhatsApp(o => !o) }
     else if (item === 'social') openOverlay('social', true)
     else if (item === 'motion') openOverlay('motion', true)
+    else if (item === 'diagnostics') setShowDiagnostics(v => !v)
     else openOverlay('skills', true)
   }
   const firstAsk = messages.find(m => m.role === 'user' && m.content)?.content
-  const headerTitle = showWhatsApp ? 'JARVIS WhatsApp Center' : hubOpen ? 'Hub Escolar' : teamMode && activeSession ? activeSession.title || 'Equipe de agentes' : firstAsk ? firstAsk.replace(/\s+/g, ' ').slice(0, 80) : 'Nova conversa'
+  const headerTitle = showDiagnostics ? 'Diagnóstico do JARVIS' : showWhatsApp ? 'JARVIS WhatsApp Center' : hubOpen ? 'Hub Escolar' : teamMode && activeSession ? activeSession.title || 'Equipe de agentes' : firstAsk ? firstAsk.replace(/\s+/g, ' ').slice(0, 80) : 'Nova conversa'
 
   // Ações reais da tela para a central de comandos (Ctrl+K). Nada aqui é decorativo.
   const paletteCommands: PaletteCommand[] = [
@@ -1072,6 +1060,7 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     { id: 'motion', label: 'Estúdio de Vídeo', hint: 'Vídeos profissionais com IA', group: 'Navegação', icon: Video, keywords: 'vídeo clipe render documentário anúncio shorts reels', run: () => openOverlay('motion') },
     { id: 'social', label: 'Social', hint: 'Instagram e TikTok via Metricool', group: 'Navegação', icon: TrendingUp, keywords: 'post conteúdo', run: () => openOverlay('social') },
     { id: 'infra', label: 'Infraestrutura', hint: 'Monitores, servidores e backups', group: 'Navegação', icon: Database, keywords: 'servidor rede', run: () => openOverlay('infra') },
+    { id: 'diagnostics', label: 'Diagnóstico do JARVIS', hint: 'Status de módulos, falhas e atenções', group: 'Navegação', icon: Stethoscope, keywords: 'erro alerta falha diagnóstico selfcheck', run: () => setShowDiagnostics(true) },
     { id: 'sidebar', label: sidebarOpen ? 'Esconder conversas' : 'Mostrar conversas', hint: 'Barra lateral de sessões', group: 'Painéis', icon: PanelLeft, keywords: 'histórico', run: toggleSidebar },
     { id: 'panel-toggle', label: rightPanelOpen ? 'Esconder terminal e arquivos' : 'Mostrar terminal e arquivos', hint: 'Painel direito', group: 'Painéis', icon: Terminal, keywords: 'shell', run: toggleRightPanel },
     { id: 'panel-terminal', label: 'Abrir terminal', hint: 'PowerShell integrado', group: 'Painéis', icon: Terminal, keywords: 'comando shell', run: () => { setRightPanelOpen(true); setRightTab('terminal'); savePanels(sidebarOpen, true) } },
@@ -1079,136 +1068,9 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
     { id: 'panel-files', label: 'Abrir arquivos', hint: 'Navegar no projeto', group: 'Painéis', icon: FolderOpen, keywords: 'explorador', run: () => { setRightPanelOpen(true); setRightTab('files'); savePanels(sidebarOpen, true) } },
   ]
 
-  return (
-    <MotionConfig reducedMotion={prefs?.appearance.motion === 'full' || !prefs ? 'never' : 'always'}>
-    <div className="ui-root" style={{ '--ui-scale': uiScale } as React.CSSProperties}>
-      {(prefs?.appearance.particles ?? true) && prefs?.appearance.motion !== 'off' && <NeuralBackground intensity={isStreaming ? 2.4 : 1} />}
-      <div className="hud-overlay" aria-hidden style={{ display: prefs?.appearance.motion === 'off' ? 'none' : undefined }} />
-      <BootSequence />
-      <InfraAlerts onOpen={() => openOverlay('infra')} />
-      <NavRail active={railActive} onSelect={onRail} onKeys={() => openOverlay('keys')} onSettings={() => openOverlay('settings')} keysMissing={connectedProviders === 0} />
-      {/* ─── LEFT SIDEBAR ─── */}
-      <AnimatePresence mode="popLayout">
-        {sidebarOpen && (
-          <motion.aside
-            key="sidebar"
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -30 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            style={{ width: 260 }}
-            className="relative z-10 glass-panel border-r border-cyan-500/10 flex flex-col flex-shrink-0 overflow-hidden"
-          >
-            {/* Header + tabs */}
-            <div className="px-3 pt-3 pb-2 border-b border-white/5">
-              <div className="flex items-center gap-2 mb-2.5 px-1">
-                <h1 className="font-bold text-sm jarvis-title tracking-[0.25em]">JARVIS</h1>
-                <div className="status-dot online ml-auto" title="Online" />
-              </div>
-              <div role="tablist" className="flex gap-1 p-0.5 rounded-lg bg-white/[0.03]">
-                {(['chat', 'memory'] as const).map(t => (
-                  <button
-                    key={t}
-                    role="tab"
-                    aria-selected={sidebarTab === t}
-                    onClick={() => setSidebarTab(t)}
-                    className={`relative flex-1 py-1.5 rounded-md text-[11px] font-medium transition-colors ${sidebarTab === t ? 'text-cyan-200' : 'text-white/40 hover:text-white/70'}`}
-                  >
-                    {sidebarTab === t && <motion.span layoutId="sidebar-tab-pill" className="absolute inset-0 rounded-md bg-cyan-500/15 border border-cyan-400/20" transition={{ type: 'spring', stiffness: 520, damping: 38 }} />}
-                    <span className="relative">{t === 'chat' ? 'Conversas' : 'Memória'}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-2">
-              {sidebarTab === 'chat' && (
-                <SessionsPanel
-                  projectId={projectId}
-                  onProjectChange={changeProject}
-                  activeSessionId={activeSession?.id || conversationId}
-                  onOpen={openSession}
-                  onNewChat={newChat}
-                  onNewTeam={newTeamSession}
-                  refreshKey={sessionsRefresh}
-                  onDeleted={onSessionsDeleted}
-                />
-              )}
-
-              {sidebarTab === 'memory' && (
-                <div>
-                  <p className="panel-title px-2 mb-2">Memórias ({memoryEntries.length})</p>
-                  <div className="mo-stagger">
-                    {(memoryEntries as Array<{ id: string; type: string; content: string }>).slice(0, 20).map(m => (
-                      <div key={m.id} className="mo-spot p-2 mb-1 rounded-lg bg-white/[.02] border border-white/5 hover:border-cyan-500/20 transition-colors">
-                        <div className="text-[10px] text-cyan-400/50 uppercase">{m.type}</div>
-                        <div className="text-xs text-white/60 truncate">{m.content}</div>
-                      </div>
-                    ))}
-                  </div>
-                  {memoryEntries.length === 0 && (
-                    <p className="text-xs text-white/20 text-center py-8">Sem memórias salvas</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-          </motion.aside>
-        )}
-      </AnimatePresence>
-
-      {/* ─── MAIN CHAT AREA ─── */}
-      <div className="relative z-10 flex-1 flex flex-col min-w-0" {...dropHandlers}>
-        <AnimatePresence>
-          {dragOver && (
-            <motion.div key="drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="pointer-events-none absolute inset-3 z-40 rounded-2xl border-2 border-dashed border-cyan-400/60 bg-[#06101c]/85 backdrop-blur-sm flex flex-col items-center justify-center gap-2 text-center">
-              <Layers size={34} className="text-cyan-300 animate-pulse" />
-              <div className="text-base font-semibold text-white">Solte para jogar como contexto</div>
-              <div className="text-xs text-white/50 max-w-sm">Documentos, PDFs, planilhas, código e textos viram contexto da conversa · imagens vão para a análise visual</div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <TopBar
-          title={headerTitle}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={toggleSidebar}
-          agentMode={agentMode}
-          onToggleAgentMode={toggleAgentMode}
-          currentModel={currentModel}
-          autoModel={autoModel}
-          onOpenModels={() => openOverlay('models')}
-          onToggleAuto={() => setAutoModel(v => !v)}
-          connected={connectedProviders}
-          onOpenPalette={() => setShowPalette(true)}
-          rightPanelOpen={rightPanelOpen}
-          onToggleRightPanel={toggleRightPanel}
-          streaming={isStreaming}
-          status={streamStatus}
-          clock={clock}
-        />
-        <div className="topbar-hairline" aria-hidden />
-        {isStreaming && <div className="stream-bar" role="progressbar" aria-label="JARVIS respondendo" />}
-
-        {showWhatsApp ? (
-          <WhatsAppCenter onClose={() => setShowWhatsApp(false)} />
-        ) : hubOpen ? (
-          <HubWorkspace onOpenSession={(s) => { openSession(s); setSessionsRefresh(x => x + 1) }} />
-        ) : teamMode && activeSession ? (
-          <AgentsWorkspace
-            key={activeSession.id}
-            session={activeSession}
-            project={projects.find(p => p.id === activeSession.projectId)}
-            onChanged={bumpSessions}
-            onProjectChange={(id) => {
-              setActiveSession(s => (s ? { ...s, projectId: id } : s))
-              setProjectIdState(id)
-              try { localStorage.setItem('jarvis.project', id) } catch {}
-              setSessionsRefresh(x => x + 1)
-            }}
-          />
-        ) : (<>
+  // ── Zonas: o shell escolhe qual mostrar ────────────────────────────────────
+  const chatZone = (<>
         {/* Messages */}
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
@@ -1489,172 +1351,94 @@ Use \`/mode restrito\`, \`/mode supervisionado\` ou \`/mode autonomo\`.`)
             </div>
           </div>
         </div>
-        </>)}
-        <StatusBar
-          streaming={isStreaming}
-          agentMode={agentMode}
-          model={autoModel ? 'Automático' : currentModel}
-          projectId={projectId}
-          connected={connectedProviders}
-        />
-      </div>
+</>)
 
-      {/* ─── RIGHT PANEL ─── */}
-      <AnimatePresence mode="popLayout">
-        {rightPanelOpen && (
-          <motion.aside
-            key="rightpanel"
-            initial={{ opacity: 0, x: 30 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 30 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            style={{ width: 340 }}
-            className="relative z-10 glass-panel border-l border-cyan-500/10 flex flex-col flex-shrink-0 overflow-hidden"
-          >
-            {/* Panel tabs */}
-            <div role="tablist" className="flex p-2 gap-1 border-b border-white/5">
-              {([
-                // A aba de execução só existe quando há uma: painel vazio não ocupa espaço.
-                ...(activeRunId ? [{ id: 'run' as const, icon: Zap, label: 'Execução' }] : []),
-                { id: 'terminal', icon: Terminal, label: 'Terminal' },
-                { id: 'memory', icon: Brain, label: 'Memória' },
-                { id: 'files', icon: FolderOpen, label: 'Arquivos' },
-              ] as const).map(({ id, icon: Icon, label }) => (
-                <button
-                  key={id}
-                  role="tab"
-                  aria-selected={rightTab === id}
-                  onClick={() => setRightTab(id)}
-                  className={`relative flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs transition-all ${rightTab === id ? 'text-cyan-300' : 'text-white/30 hover:text-white/60'}`}
-                >
-                  {rightTab === id && <motion.span layoutId="right-tab-pill" className="absolute inset-0 rounded-lg bg-cyan-500/15 border border-cyan-400/20" transition={{ type: 'spring', stiffness: 520, damping: 38 }} />}
-                  <Icon size={12} className="relative" />
-                  <span className="relative">{label}</span>
-                </button>
-              ))}
-            </div>
+  const teamsZone = activeSession ? (
+    <AgentsWorkspace
+      key={activeSession.id}
+      session={activeSession}
+      project={projects.find(p => p.id === activeSession.projectId)}
+      onChanged={bumpSessions}
+      onProjectChange={(id) => {
+        setActiveSession(s => (s ? { ...s, projectId: id } : s))
+        setProjectIdState(id)
+        try { localStorage.setItem('jarvis.project', id) } catch {}
+        setSessionsRefresh(x => x + 1)
+      }}
+    />
+  ) : null
 
-            {/* Execução em andamento: plano, alterações e agentes */}
-            {rightTab === 'run' && activeRunId && (
-              <RunPanel runId={activeRunId} onChanged={() => setSessionsRefresh(x => x + 1)} />
-            )}
+  const hubZone = (
+<HubWorkspace onOpenSession={(s) => { openSession(s); setSessionsRefresh(x => x + 1) }} />
+  )
 
-            {/* Terminal: sessões que ficam vivas no servidor (lib/terminal) */}
-            {rightTab === 'terminal' && (
-              <TerminalPanel cwd={projects.find(p => p.id === projectId)?.path || undefined} />
-            )}
+  const whatsappZone = (
+<WhatsAppCenter onClose={() => setShowWhatsApp(false)} />
+  )
 
-            {/* Memory */}
-            {rightTab === 'memory' && (
-              <div className="flex-1 overflow-y-auto p-3">
-                <p className="panel-title mb-3">Memória Persistente</p>
-                {(memoryEntries as Array<{ id: string; type: string; content: string; tags: string }>).map(m => (
-                  <div key={m.id} className="mb-2 p-2.5 rounded-xl bg-white/[.02] border border-white/5">
-                    <div className="text-[10px] text-cyan-400/60 uppercase mb-1">{m.type}</div>
-                    <div className="text-xs text-white/60">{m.content}</div>
-                    <div className="flex gap-1 mt-1.5">
-                      {JSON.parse(m.tags || '[]').map((t: string) => (
-                        <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-white/30">{t}</span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {memoryEntries.length === 0 && (
-                  <div className="text-center py-16 text-white/20 text-xs">
-                    <Brain size={24} className="mx-auto mb-2 opacity-30" />
-                    Sem memórias salvas
-                  </div>
-                )}
-              </div>
-            )}
+  const sessionsPanelNode = (
+    <SessionsPanel
+      projectId={projectId}
+      onProjectChange={changeProject}
+      activeSessionId={activeSession?.id || conversationId}
+      onOpen={openSession}
+      onNewChat={newChat}
+      onNewTeam={newTeamSession}
+      refreshKey={sessionsRefresh}
+      onDeleted={onSessionsDeleted}
+    />
+  )
 
-            {/* Files */}
-            {rightTab === 'files' && <FilesPanel />}
-          </motion.aside>
-        )}
-      </AnimatePresence>
-
-      {/* ─── CENTRAL DE COMANDOS ─── */}
-      {showPalette && (
-        <CommandPalette
-          open={showPalette}
-          onClose={() => setShowPalette(false)}
-          commands={paletteCommands}
-          currentModel={currentModel}
-          onSelectModel={id => {
-            setCurrentModel(id)
-            setAutoModel(false)
-            toast.success(`Modelo ativo: ${shortModelName(id)}`)
-          }}
-        />
-      )}
-
-      {/* ─── MODALS ─── */}
-      <>
-        {showModelManager && (
-          <ModelManagerModal
-            key="mm"
-            onClose={() => setShowModelManager(false)}
-            onSelect={setCurrentModel}
-            onOpenKeys={() => openOverlay('keys')}
-            currentModel={currentModel}
-          />
-        )}
-        {showKeys && (
-          <ApiKeysModal
-            key="keys"
-            onClose={() => { setShowKeys(false); refreshModels() }}
-          />
-        )}
-        {showSkills && (
-          <SkillEnginePanel
-            key="skills"
-            onClose={() => setShowSkills(false)}
-          />
-        )}
-        {showFirstRun && (
-          <FirstRunSetup
-            key="first-run"
-            onDone={() => setShowFirstRun(false)}
-            onSkip={() => { try { localStorage.setItem('jarvis.firstRunSkipped', '1') } catch {} ; setShowFirstRun(false) }}
-          />
-        )}
-        {showMotion && (
-          <StudioPanel
-            key="motion"
-            onClose={() => setShowMotion(false)}
-          />
-        )}
-        {showInfra && (
-          <InfraPanel
-            key="infra"
-            onClose={() => setShowInfra(false)}
-          />
-        )}
-        {showSocial && (
-          <SocialPanel
-            key="social"
-            onClose={() => setShowSocial(false)}
-          />
-        )}
-        {showSettings && (
-          <SettingsPanel
-            key="settings"
-            onClose={() => setShowSettings(false)}
-            onOpenKeys={() => openOverlay('keys')}
-            model={currentModel}
-            onModel={id => { if (id) setCurrentModel(id); else { try { localStorage.removeItem('jarvis.model') } catch {} setCurrentModelState(''); refreshModels() } }}
-            autoModel={autoModel}
-            onAutoModel={setAutoModel}
-            onExample={text => {
-              setShowSettings(false)
-              setInput(text)
-              setTimeout(() => inputRef.current?.focus(), 60)
-            }}
-          />
-        )}
-      </>
-    </div>
-    </MotionConfig>
+  return (
+    <AppShell
+      uiScale={uiScale}
+      prefs={prefs}
+      chatZone={chatZone}
+      teamsZone={teamsZone}
+      hubZone={hubZone}
+      whatsappZone={whatsappZone}
+      showDiagnostics={showDiagnostics}
+      setShowDiagnostics={setShowDiagnostics}
+      showWhatsApp={showWhatsApp}
+      hubOpen={hubOpen}
+      teamMode={teamMode}
+      activeSession={activeSession}
+      overlay={overlay}
+      onSetOverlay={setOverlay}
+      onSelect={onRail}
+      keysMissing={connectedProviders === 0}
+      sidebarTab={sidebarTab}
+      onSidebarTab={setSidebarTab}
+      projectId={projectId}
+      sessionsPanel={sessionsPanelNode}
+      memoryEntries={memoryEntries}
+      title={headerTitle}
+      agentMode={agentMode}
+      onToggleAgentMode={toggleAgentMode}
+      currentModel={currentModel}
+      autoModel={autoModel}
+      onToggleAuto={() => setAutoModel(v => !v)}
+      connected={connectedProviders}
+      clock={clock}
+      streaming={isStreaming}
+      status={streamStatus}
+      activeRunId={activeRunId}
+      runPanel={<RunPanel runId={activeRunId} onChanged={() => setSessionsRefresh(x => x + 1)} />}
+      terminalPanel={<TerminalPanel cwd={projects.find(p => p.id === projectId)?.path || undefined} />}
+      filesPanel={<FilesPanel />}
+      onDropFiles={takeFiles}
+      refreshModels={refreshModels}
+      onModelSelect={setCurrentModel}
+      onOpenCouncil={() => { setInput('/council '); inputRef.current?.focus() }}
+      onOpenHub={() => { closeOverlays(); setHubOpen(true) }}
+      onShowWhatsApp={() => { closeOverlays(); setHubOpen(false); setShowWhatsApp(true) }}
+      onOpenAgents={() => { setShowDiagnostics(false); void newTeamSession() }}
+      showFirstRun={showFirstRun}
+      onFirstRunDone={() => setShowFirstRun(false)}
+      onFirstRunSkip={() => { try { localStorage.setItem('jarvis.firstRunSkipped', '1') } catch {} ; setShowFirstRun(false) }}
+      onNewChat={newChat}
+      onNewTeam={() => { void newTeamSession() }}
+      onExample={text => { setOverlay(null); setInput(text); setTimeout(() => inputRef.current?.focus(), 60) }}
+    />
   )
 }

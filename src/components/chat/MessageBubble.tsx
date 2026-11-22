@@ -57,11 +57,17 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} px-4 py-1.5`}
     >
       {!isUser && (
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-2 mt-1 flex-shrink-0 bg-black/60 border border-cyan-500/30 transition-shadow ${streaming ? 'avatar-glow' : ''}`}>
+        <div className={`jv-card w-8 h-8 rounded-full flex items-center justify-center mr-2 mt-1 flex-shrink-0 transition-shadow ${streaming ? 'avatar-glow' : ''}`} style={{ borderRadius: 9999 }}>
           <JarvisLogo size={22} speed={streaming ? 3 : 0.6} />
         </div>
       )}
-      <div className={`max-w-[80%] group relative ${isUser ? 'msg-user' : 'msg-assistant'} px-4 py-3 rounded-xl`}>
+      <div
+        className={`max-w-[80%] group relative ${isUser ? 'msg-user' : 'msg-assistant'} jv-card jv-card-pad px-4 py-3 rounded-xl`}
+        style={isUser ? { background: 'linear-gradient(140deg, rgb(var(--acc-glow)/.10) 0%, rgb(var(--acc-glow)/.03) 100%)' } : undefined}
+      >
+        <span className={`jv-badge mb-1.5 ${streaming && !isUser ? 'jv-badge-warn' : isUser ? 'jv-badge-muted' : 'jv-badge-info'}`}>
+          {streaming && !isUser ? 'digitando…' : isUser ? 'você' : 'ia'}
+        </span>
         {isUser && editando ? (
           <div className="min-w-[260px]">
             <textarea
@@ -73,22 +79,22 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
                 if (e.key === 'Escape') { setEditando(false); setRascunho(msg.content) }
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && rascunho.trim()) { setEditando(false); onEdit?.(msg, rascunho.trim()) }
               }}
-              className="w-full bg-black/30 rounded-lg px-2 py-1.5 text-sm text-white/90 outline-none border border-white/10 resize-y"
+              className="jv-input jv-textarea w-full"
             />
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] text-white/35 flex-1">As respostas depois desta mensagem serão refeitas.</span>
-              <button onClick={() => { setEditando(false); setRascunho(msg.content) }} className="px-2 py-0.5 rounded-lg text-[11px] border border-white/15 text-white/65 hover:bg-white/5">Cancelar</button>
+              <span className="text-[10px] flex-1" style={{ color: 'var(--jv-muted)' }}>As respostas depois desta mensagem serão refeitas.</span>
+              <button onClick={() => { setEditando(false); setRascunho(msg.content) }} className="jv-btn jv-btn-ghost text-[11px]">Cancelar</button>
               <button
                 disabled={!rascunho.trim() || rascunho.trim() === msg.content.trim()}
                 onClick={() => { setEditando(false); onEdit?.(msg, rascunho.trim()) }}
-                className="px-2 py-0.5 rounded-lg text-[11px] bg-white text-black hover:bg-white/90 disabled:opacity-40"
+                className="jv-btn jv-btn-primary text-[11px]"
               >
                 Enviar
               </button>
             </div>
           </div>
         ) : isUser ? (
-          <p className="text-sm text-white/90 leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+          <p className="text-sm text-[var(--jv-fg)] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
         ) : (
           <>
             {msg.reasoning && <ReasoningPanel text={msg.reasoning} live={streaming && !clean} />}
@@ -102,7 +108,7 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
         {!isUser && topologiesFromMsg.map(id => <TopologyInline key={id} id={id} />)}
         <button
           onClick={() => onCopy(clean)}
-          className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+          className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
           title="Copiar texto"
         >
           <Copy size={10} />
@@ -110,7 +116,7 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
         {isUser && onEdit && !editando && (
           <button
             onClick={() => { setRascunho(msg.content); setEditando(true) }}
-            className="absolute -top-2 right-5 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+            className="absolute -top-2 right-5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
             title="Editar e reenviar"
           >
             <Pencil size={10} />
@@ -119,7 +125,7 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
         {!isUser && onRegenerate && !streaming && (
           <button
             onClick={() => onRegenerate(msg)}
-            className="absolute -top-2 right-12 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+            className="absolute -top-2 right-12 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus:opacity-100 p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
             title="Gerar outra resposta"
           >
             <RefreshCw size={10} />
@@ -128,15 +134,15 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
         {!isUser && !streaming && clean.trim() && (
           <button
             onClick={listen}
-            className={`absolute -top-2 right-5 p-1 rounded-full transition-all ${speech.key === speechKey ? 'opacity-100 bg-cyan-500/30 text-cyan-100' : 'opacity-0 group-hover:opacity-100 bg-white/10 hover:bg-white/20'}`}
+            className={`absolute -top-2 right-5 p-1 rounded-full transition-all ${speech.key === speechKey ? 'opacity-100 bg-cyan-500/30 text-cyan-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus:opacity-100 bg-white/10 hover:bg-white/20'}`}
             title={speech.key === speechKey ? 'Parar' : 'Ouvir a resposta'}
           >
             {speech.key === speechKey ? (speech.loading ? <Loader2 size={10} className="animate-spin" /> : <Square size={10} />) : <Volume2 size={10} />}
           </button>
         )}
         {msg.model && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-white/25 font-mono" title={msg.model}>
-            <span className="inline-block w-1 h-1 rounded-full bg-cyan-400/60" />
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-[var(--jv-font-mono)] text-[var(--jv-muted)]" title={msg.model}>
+            <span className="inline-block w-1 h-1 rounded-full bg-[rgb(var(--acc-glow)/.45)]" />
             {msg.model.split('|').pop()}
             {msg.stats?.firstMs !== undefined && <span title="Tempo até a primeira palavra">· 1ª palavra {fmtMs(msg.stats.firstMs)}</span>}
             {msg.stats?.totalMs !== undefined && <span title="Tempo total da resposta">· total {fmtMs(msg.stats.totalMs)}</span>}
@@ -150,7 +156,11 @@ export default function MessageBubble({ msg, onCopy, streaming = false, onEdit, 
         )}
       </div>
       {isUser && (
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center ml-2 mt-1 flex-shrink-0 text-xs font-bold text-white" title={prefs?.userName || 'Você'}>
+        <div
+          className="w-7 h-7 rounded-full flex items-center justify-center ml-2 mt-1 flex-shrink-0 text-xs font-bold"
+          style={{ background: 'linear-gradient(135deg, var(--jv-accent) 0%, var(--jv-bg-deep) 100%)' }}
+          title={prefs?.userName || 'Você'}
+        >
           {(prefs?.userName?.trim()[0] || 'U').toUpperCase()}
         </div>
       )}

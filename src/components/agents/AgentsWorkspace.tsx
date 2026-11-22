@@ -11,12 +11,13 @@ import Markdown from '@/components/chat/Markdown'
 import { api, fmtDuration, fmtTokens, shortModel } from './api'
 import { ConfirmDialog, ModelPicker, ProjectDialog, RUN_STATUS_LABEL, STATUS_LABEL } from './shared'
 import TeamsManager from './TeamsManager'
+import TeamCanvas from './TeamCanvas'
 import LiveTimeline from './LiveTimeline'
 import type { AgentRuntimeState, AgentTask, Project, RoleTemplate, Run, RunEvent, SessionMeta, Team } from '@/lib/agents/types'
 import { ACTIVE_RUN_STATUSES, DEFAULT_RUN_OPTIONS } from '@/lib/agents/types'
 import { PERMISSION_LABELS, PERMISSION_MODES } from '@/lib/agents/permissions'
 
-type Tab = 'live' | 'tasks' | 'messages' | 'activity' | 'files' | 'errors' | 'approvals' | 'report'
+type Tab = 'canvas' | 'live' | 'tasks' | 'messages' | 'activity' | 'files' | 'errors' | 'approvals' | 'report'
 
 export default function AgentsWorkspace({
   session, project, onChanged, onProjectChange,
@@ -104,7 +105,7 @@ export default function AgentsWorkspace({
   }
 
   const agentName = useCallback((id: string) => (id === 'user' ? 'Você' : run?.agents.find(a => a.id === id)?.name || id), [run])
-  const pendingApprovals = run?.scopeRequests.filter(r => r.status === 'pending').length || 0
+  const pendingApprovals = (run?.scopeRequests.filter(r => r.status === 'pending').length || 0) + (run?.approvals?.filter(a => a.status === 'pending').length || 0)
   const errorEvents = events.filter(e => e.level !== 'info')
   const files = useMemo(() => {
     const m = new Map<string, { path: string; added: number; removed: number; agents: Set<string>; action: string }>()
@@ -270,6 +271,7 @@ export default function AgentsWorkspace({
             <div className="glass rounded-2xl">
               <div className="flex gap-1 p-2 border-b border-white/5 overflow-x-auto">
                 {([
+                  ['canvas', 'Equipe', Users, run.agents.filter(a => !a.removed).length],
                   ['live', 'Ao vivo', Zap, 0],
                   ['tasks', 'Tarefas', ClipboardList, run.tasks.length],
                   ['messages', 'Mensagens', MessageSquare, run.messages.length],
@@ -286,6 +288,16 @@ export default function AgentsWorkspace({
                 ))}
               </div>
               <div className={`p-3 ${tab === 'live' ? '' : 'max-h-[460px] overflow-y-auto'}`}>
+                {tab === 'canvas' && (
+                  <TeamCanvas
+                    run={run}
+                    roles={roles}
+                    active={active}
+                    agentName={agentName}
+                    onReply={content => void control('message', { to: run.agents.find(a => a.pendingReply)?.id || 'all', content }, 'Resposta enviada à equipe')}
+                    onCancelTask={taskId => void control('cancel-task', { taskId }, 'Tarefa cancelada')}
+                  />
+                )}
                 {tab === 'live' && (
                   <LiveTimeline
                     events={events} run={run} agentName={agentName} active={active}
@@ -593,22 +605,43 @@ function ErrorsTab({ events, agents, agentName }: { events: RunEvent[]; agents: 
 }
 
 function ApprovalsTab({ run, agentName, active, control }: { run: Run; agentName: (id: string) => string; active: boolean; control: (a: string, b?: Record<string, unknown>, ok?: string) => Promise<unknown> }) {
-  if (!run.scopeRequests.length) return <Empty text="Quando um agente precisar alterar um arquivo fora do seu escopo, o pedido aparece aqui para você aprovar." />
+  // ALT-1: dois tipos de pedidos — aprovação de ferramenta e alteração de arquivo
+  // fora do escopo — precisam das duas listas. Antes, apenas o escopo aparecia:
+  // quem acionava a execução no workspace travava para sempre.
+  const aprovacoes = (run.approvals || []).filter(a => a.status === 'pending')
+  const escopos = run.scopeRequests.filter(r => r.status === 'pending')
+  if (!aprovacoes.length && !escopos.length) {
+    return <Empty text="Quando um agente pedir aprovação de ferramenta ou alterar um arquivo fora do escopo, o pedido aparece aqui para você decidir." />
+  }
   return (
     <div className="space-y-2">
-      {run.scopeRequests.map(r => (
+      {aprovacoes.map(a => (
+        <div key={a.id} className="p-3 rounded-xl border border-white/5 bg-white/[0.02] text-xs flex items-center gap-3">
+          <ShieldCheck size={15} className="text-amber-300" />
+          <div className="flex-1">
+            <div><span className="text-white/80 font-medium">{agentName(a.agentId)}</span> quer usar <span className="font-mono text-cyan-200">{a.tool}</span>{a.summary ? ` — ${a.summary}` : ''}</div>
+          </div>
+          {active ? (
+            <>
+              <button onClick={() => control('approve', { approvalId: a.id }, 'Aprovado')} className="px-3 py-1 rounded-lg bg-green-500/20 text-green-200 hover:bg-green-500/30">Aprovar</button>
+              <button onClick={() => control('deny', { approvalId: a.id }, 'Negado')} className="px-3 py-1 rounded-lg bg-red-500/15 text-red-200 hover:bg-red-500/25"><X size={12} /></button>
+            </>
+          ) : <span className="text-[10px] text-white/40">esperando a decisão</span>}
+        </div>
+      ))}
+      {escopos.map(r => (
         <div key={r.id} className="p-3 rounded-xl border border-white/5 bg-white/[0.02] text-xs flex items-center gap-3">
           <ShieldCheck size={15} className={r.status === 'pending' ? 'text-amber-300' : r.status === 'approved' ? 'text-green-300' : 'text-red-300'} />
           <div className="flex-1">
             <div><span className="text-white/80 font-medium">{agentName(r.agentId)}</span> quer alterar <span className="font-mono text-cyan-200">{r.path}</span></div>
             {r.reason && <div className="text-white/40 mt-0.5">{r.reason}</div>}
           </div>
-          {r.status === 'pending' && active ? (
+          {active ? (
             <>
               <button onClick={() => control('scope-approve', { requestId: r.id }, 'Aprovado')} className="px-3 py-1 rounded-lg bg-green-500/20 text-green-200 hover:bg-green-500/30">Aprovar</button>
               <button onClick={() => control('scope-deny', { requestId: r.id }, 'Negado')} className="px-3 py-1 rounded-lg bg-red-500/15 text-red-200 hover:bg-red-500/25"><X size={12} /></button>
             </>
-          ) : <span className="text-[10px] text-white/40">{r.status === 'pending' ? 'expirado' : r.status === 'approved' ? 'aprovado' : 'negado'}</span>}
+          ) : <span className="text-[10px] text-white/40">{r.status === 'approved' ? 'aprovado' : 'negado'}</span>}
         </div>
       ))}
     </div>

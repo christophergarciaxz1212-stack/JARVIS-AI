@@ -2,12 +2,19 @@ import { spawn } from 'child_process'
 import { StringDecoder } from 'string_decoder'
 
 const DANGEROUS_PATTERNS = [
-  /rm\s+-rf\s+\//i,
-  /format\s+c:/i,
-  /del\s+\/[sqf]+\s+[a-z]:\\/i,
-  /Remove-Item\s+-Recurse\s+-Force\s+[A-Z]:\\/i,
+  /rm\s+-rf/i,
+  /del\s+\/[sqf]/i,
+  /rmdir\s+\/[sq]/i,
+  /erase\s+\S/i,
+  /format\s+[a-zA-Z]:/i,
+  /format\s+[a-zA-Z]\s*[.,]\s*(nome|drive)/i,
   /shutdown/i,
   /net\s+user\s+.*\s+\/add/i,
+  /reg\s+(add|delete)/i,
+  /Set-ItemProperty\b.*HK(LM|CU)/i,
+  /Remove-Item\s+-Recurse\s+-Force/i,
+  /Invoke-Expression|iex\s*\(/i,
+  /curl\b.*\|\s*(sh|bash|iex)/i,
 ]
 
 export function isSafeCommand(command: string): boolean {
@@ -58,9 +65,17 @@ export function shellEnv() {
   return { ...scrubbedEnv(), PATH: [process.env.PATH, 'C:\\Program Files\\nodejs'].join(';') }
 }
 
-export function killTree(pid: number) {
-  if (process.platform === 'win32') spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }).on('error', () => {})
-  else try { process.kill(-pid, 'SIGKILL') } catch {}
+/** Encerra o processo e sua árvore: resolve false se não foi possível (sem permissão / já acabado). */
+export function killTree(pid: number): Promise<boolean> {
+  if (process.platform === 'win32') {
+    return new Promise(resolve => {
+      const p = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true })
+      p.on('error', () => resolve(false))
+      p.on('close', code => resolve(code === 0))
+      if (!p.pid) resolve(false)
+    })
+  }
+  try { process.kill(-pid, 'SIGKILL'); return Promise.resolve(true) } catch { return Promise.resolve(false) }
 }
 
 export interface CommandResult {

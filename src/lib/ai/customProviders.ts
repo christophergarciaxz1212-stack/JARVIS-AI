@@ -15,6 +15,8 @@ import { ALLOWED_ENV_KEYS, NON_CHAT, PROVIDER_APIS, apiError, clearModelCache, m
 import { normalizeBaseUrl } from './compat'
 
 export type ApiStyle = 'openai' | 'anthropic'
+/** Como a chave vai no cabeçalho: Bearer (padrão OpenAI), "api-key" (Azure e afins) ou "x-api-key". */
+export type AuthMode = 'bearer' | 'api-key' | 'x-api-key'
 
 export interface CustomProvider {
   id: string
@@ -25,6 +27,8 @@ export interface CustomProvider {
   manualModels: string[]
   /** Esconde modelos que a própria API marca como pagos (preço > 0). Padrão: ligado. */
   freeOnly: boolean
+  /** Cabeçalho da chave descoberto ao conectar (padrão: bearer) */
+  auth?: AuthMode
   createdAt: number
 }
 
@@ -76,11 +80,13 @@ function writeCustomProviders(list: CustomProvider[]) {
 
 // ── Descoberta de modelos ────────────────────────────────────────────────────
 
-function authHeaders(style: ApiStyle, key: string): Record<string, string> {
+function authHeaders(style: ApiStyle, key: string, auth: AuthMode = 'bearer'): Record<string, string> {
   const h: Record<string, string> = { Accept: 'application/json' }
   if (!key) return h
   if (style === 'anthropic') { h['x-api-key'] = key; h['anthropic-version'] = '2023-06-01' }
-  h.Authorization = `Bearer ${key}`
+  if (auth === 'api-key') h['api-key'] = key
+  else if (auth === 'x-api-key') h['x-api-key'] = key
+  else h.Authorization = `Bearer ${key}`
   return h
 }
 
@@ -114,7 +120,7 @@ export function parseModelList(data: unknown): DiscoveredModel[] {
  * Procura a lista de modelos em <base>/models e, se a base não tiver versão, em <base>/v1/models
  * e no /api/tags do Ollama. Devolve também a base que funcionou (corrige "…:8000" → "…:8000/v1").
  */
-export async function discoverModels(baseUrl: string, style: ApiStyle, key: string): Promise<{ models: DiscoveredModel[]; baseUrl: string }> {
+export async function discoverModels(baseUrl: string, style: ApiStyle, key: string, auth: AuthMode = 'bearer'): Promise<{ models: DiscoveredModel[]; baseUrl: string }> {
   const base = normalizeBaseUrl(baseUrl)
   const attempts: Array<{ url: string; base: string }> = [{ url: `${base}/models`, base }]
   if (!/\/v\d+[a-z]*$/i.test(base)) {
@@ -124,7 +130,7 @@ export async function discoverModels(baseUrl: string, style: ApiStyle, key: stri
   let lastError: Error | null = null
   for (const a of attempts) {
     try {
-      const res = await fetch(a.url, { headers: authHeaders(style, key), signal: AbortSignal.timeout(15_000) })
+      const res = await fetch(a.url, { headers: authHeaders(style, key, auth), signal: AbortSignal.timeout(15_000) })
       if (!res.ok) {
         lastError = await apiError(res)
         // Chave recusada: não adianta tentar outros caminhos
@@ -158,11 +164,13 @@ function toProviderApi(cp: CustomProvider): ProviderApi {
     custom: true,
     style: cp.style,
     chatBaseUrl: cp.baseUrl,
+    // Chave em "api-key"/"x-api-key" (Azure e afins): vai junto em toda conversa
+    ...(cp.auth && cp.auth !== 'bearer' && process.env[envKeyFor(cp.id)] ? { chatHeaders: { [cp.auth]: process.env[envKeyFor(cp.id)]! } } : {}),
     listModels: async (key) => {
       const realKey = key === 'custom' ? '' : key
       let found: DiscoveredModel[] = []
       if (cp.manualModels.length) found = cp.manualModels.map(id => ({ id }))
-      else found = (await discoverModels(cp.baseUrl, cp.style, realKey)).models
+      else found = (await discoverModels(cp.baseUrl, cp.style, realKey, cp.auth)).models
       return found
         .filter(m => !(cp.freeOnly && m.paid))
         .map((m): AIModel => model(api, m.id, {
@@ -210,6 +218,7 @@ export interface ProviderInput {
   apiKey?: string
   manualModels?: string[] | string
   freeOnly?: boolean
+  auth?: AuthMode
 }
 
 function cleanModels(v: ProviderInput['manualModels']) {
@@ -240,6 +249,7 @@ export function upsertCustomProvider(input: ProviderInput): CustomProvider {
     style,
     manualModels: cleanModels(input.manualModels),
     freeOnly: input.freeOnly !== false,
+    auth: input.auth ?? existing?.auth,
     createdAt: existing?.createdAt || Date.now(),
   }
   if (input.apiKey !== undefined) {

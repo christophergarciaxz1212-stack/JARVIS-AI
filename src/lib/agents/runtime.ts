@@ -65,22 +65,25 @@ export class AgentRuntime {
       snapshotDir: snapshotDir(run.sessionId, run.id),
       persist: r => saveRun(r),
       appendEvent: e => appendEvent(run.sessionId, run.id, e),
-      onSettled: r => this.onSettled(r),
+      onSettled: r => this.onSettled(r, ctrl),
     })
     this.runs.set(run.id, ctrl)
     return ctrl
   }
 
-  private onSettled(run: Run) {
-    const status: SessionStatus = run.status === 'paused' || run.status === 'interrupted' ? 'paused' : 'completed'
+  private onSettled(run: Run, ctrl?: RunController) {
+    const status: SessionStatus = run.status === 'failed' ? 'failed'
+      : run.status === 'paused' || run.status === 'interrupted' || run.status === 'cancelled' ? 'paused' : 'completed'
     try {
       updateSession(run.sessionId, { status })
       if (run.report && getSession(run.sessionId)) {
         addMessage({ id: uuidv4(), conversationId: run.sessionId, role: 'assistant', content: run.report, model: 'equipe' })
       }
     } catch {}
-    // Keep finished controllers briefly so late SSE subscribers still get the final state
-    setTimeout(() => { if (this.runs.get(run.id)?.run === run) this.runs.delete(run.id) }, 60_000)
+    // Keep finished controllers briefly so late SSE subscribers still get the final state.
+    // Compare the CONTROLLER, not the run: resumeRun() reuses the same Run object on a
+    // new controller — an old timer comparing runs would delete the active replacement.
+    setTimeout(() => { if (this.runs.get(run.id) === ctrl) this.runs.delete(run.id) }, 60_000)
   }
 
   startRun(input: StartRunInput): RunController {

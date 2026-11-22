@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Ban, Loader2, Plus, Send, Trash2, X } from 'lucide-react'
+import { Ban, Copy, Loader2, Plus, Send, Terminal as TerminalIcon, Trash2, X } from 'lucide-react'
 import type { TerminalChunk, TerminalInfo } from '@/lib/terminal'
 
 /**
@@ -100,6 +100,14 @@ export default function TerminalPanel({ cwd }: { cwd?: string }) {
     } catch (e) { toast.error((e as Error).message) }
   }
 
+  const copiarSaida = async () => {
+    if (!chunks.length) return
+    try {
+      await navigator.clipboard.writeText(chunks.map(c => (c.kind === 'comando' ? `> ${c.text}` : c.text)).join('\n'))
+      toast.success('Saída do terminal copiada')
+    } catch (e) { toast.error((e as Error).message) }
+  }
+
   const fechar = async (id: string) => {
     try { await api({ action: 'close', id }); await recarregar() } catch (e) { toast.error((e as Error).message) }
   }
@@ -139,15 +147,19 @@ export default function TerminalPanel({ cwd }: { cwd?: string }) {
           onClick={() => criar('powershell')}
           disabled={criando}
           title="Nova sessão PowerShell"
-          className="p-1 rounded-lg text-white/35 hover:text-white/75 hover:bg-white/5 flex-shrink-0 disabled:opacity-40"
+          className="jv-btn jv-btn-icon jv-btn-ghost flex-shrink-0"
         >
           {criando ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
         </button>
+        <button onClick={() => criar('cmd')} disabled={criando} title="Nova sessão CMD" className="jv-btn jv-btn-sm jv-btn-ghost flex-shrink-0"><TerminalIcon size={10} /> CMD</button>
         <div className="flex-1" />
         {activeId && (
-          <button onClick={() => setChunks([])} title="Limpar a tela (o histórico do shell continua)" className="p-1 rounded hover:bg-white/5 flex-shrink-0">
-            <Trash2 size={11} className="text-white/30" />
-          </button>
+          <>
+            <button onClick={() => void copiarSaida()} title="Copiar saída visível" className="jv-btn jv-btn-icon jv-btn-ghost flex-shrink-0"><Copy size={11} /></button>
+            <button onClick={() => setChunks([])} title="Limpar a tela (o histórico do shell continua)" className="jv-btn jv-btn-icon jv-btn-ghost flex-shrink-0">
+              <Trash2 size={11} />
+            </button>
+          </>
         )}
       </div>
 

@@ -27,8 +27,8 @@ export interface DiagnosticsPayload {
   ran?: number
 }
 
-async function payload(): Promise<DiagnosticsPayload> {
-  const [diagnostics, modules] = await Promise.all([gatherDiagnostics(), collectModuleStatus()])
+async function payload(base?: string): Promise<DiagnosticsPayload> {
+  const [diagnostics, modules] = await Promise.all([gatherDiagnostics(), collectModuleStatus(base ? { base } : {})])
   return {
     diagnostics,
     modules: modules.modules,
@@ -52,7 +52,7 @@ export async function GET(req?: NextRequest) {
           }
           const push = async () => {
             try {
-              const p = await payload()
+              const p = await payload(req?.nextUrl?.origin)
               send('snapshot', p)
               send('logs', readLogs({ limit: 60 }).slice().reverse())
             } catch { /* sonda transitória: mantém o stream */ }
@@ -66,7 +66,7 @@ export async function GET(req?: NextRequest) {
       })
       return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' } })
     }
-    return Response.json(await payload())
+    return Response.json(await payload(req?.nextUrl?.origin))
   } catch (error) {
     return Response.json({ error: redact(String((error as Error).message)) }, { status: 500 })
   }
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
       .slice(0, limit)
     let ran = 0
     for (const id of ids) { recordAudit(await runModelAudit(id, 1)); ran++ }
-    const p = await payload()
+    const p = await payload(req.nextUrl?.origin)
     try { writeJsonAtomic(diagnosticReportPath(), p) } catch { /* evidência é best-effort */ }
     return Response.json({ ...p, ran })
   } catch (error) {

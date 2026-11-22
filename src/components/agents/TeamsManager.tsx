@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { api } from './api'
 import { ConfirmDialog, Modal, ModelPicker } from './shared'
 import type { AgentConfig, RoleTemplate, Team } from '@/lib/agents/types'
+import { PRESET_TEAMS } from '@/lib/agents/roles'
 
 export default function TeamsManager({ onClose, onChanged }: { onClose: () => void; onChanged?: () => void }) {
   const [teams, setTeams] = useState<Team[]>([])
@@ -81,6 +82,31 @@ export default function TeamsManager({ onClose, onChanged }: { onClose: () => vo
 
         {draft && (
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {/* Começo rápido: uma equipe pronta em um clique (configurações avançadas abaixo) */}
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-white/35 mb-2">Começo rápido — equipes prontas</p>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESET_TEAMS.map(p => (
+                  <button
+                    key={p.id}
+                    title={p.description}
+                    onClick={async () => {
+                      try {
+                        const t = await api.saveTeam({ name: `${p.name} (cópia)`, description: p.description, agents: p.agents.map(a => ({ ...a, id: uuidv4() })) })
+                        toast.success(`Equipe "${t.name}" criada`)
+                        await load(t.id)
+                        onChanged?.()
+                      } catch (e) { toast.error((e as Error).message) }
+                    }}
+                    className="jv-btn jv-btn-sm"
+                  >
+                    <span>{p.agents[0]?.roleId === 'leader' ? '🎯' : '👥'}</span>
+                    <span className="max-w-[160px] truncate">{p.name}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="jv-hint">Clique para criar uma cópia editável. Abaixo você ajusta nomes, funções e modelos.</p>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-xs text-white/40">Nome</span>

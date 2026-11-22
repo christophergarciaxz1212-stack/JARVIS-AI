@@ -23,6 +23,17 @@ async function esperaSaida(id: string, procura: RegExp, timeoutMs = 20_000) {
   throw new Error(`Não apareceu ${procura} em ${timeoutMs}ms. Saída:\n${lida()}`)
 }
 
+/** Espera o chunk de erro aparecer — um sleep fixo falha quando a máquina está sob carga. */
+async function esperaErro(id: string, timeoutMs = 20_000) {
+  const fim = Date.now() + timeoutMs
+  while (Date.now() < fim) {
+    const erros = getTerminal(id)!.history().filter(c => c.kind === 'erro')
+    if (erros.length) return erros
+    await sleep(150)
+  }
+  throw new Error(`Não apareceu chunk de erro em ${timeoutMs}ms. Saída:\n${getTerminal(id)!.history().map(c => c.text).join('')}`)
+}
+
 describe('ciclo de vida da sessão', () => {
   it('cria, lista e encerra', () => {
     const t = createTerminal({ title: 'Teste' })
@@ -91,8 +102,7 @@ describe('saída', () => {
   it('separa erro de saída normal', async () => {
     const t = createTerminal()
     writeTerminal(t.id, 'Get-Item C:\\pasta\\que\\nao\\existe\\mesmo')
-    await sleep(2500)
-    const erros = getTerminal(t.id)!.history().filter(c => c.kind === 'erro')
+    const erros = await esperaErro(t.id)
     expect(erros.length).toBeGreaterThan(0)
   }, 40_000)
 

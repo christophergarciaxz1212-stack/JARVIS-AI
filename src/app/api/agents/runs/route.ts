@@ -49,8 +49,12 @@ function sanitizeOptions(raw: unknown): Partial<RunOptions> | undefined {
     out.permissionMode = r.permissionMode as RunOptions['permissionMode']
   }
   if (typeof r.planFirst === 'boolean') out.planFirst = r.planFirst
+  const MAX_PARALLEL = 8, MAX_STEPS = 30, MAX_FIX_ROUNDS = 3
   for (const k of ['maxParallel', 'maxSteps', 'fixRounds'] as const) {
-    if (typeof r[k] === 'number' && Number.isFinite(r[k]) && (r[k] as number) > 0) out[k] = Math.floor(r[k] as number)
+    if (typeof r[k] === 'number' && Number.isFinite(r[k]) && (r[k] as number) > 0) {
+      const cap = k === 'maxParallel' ? MAX_PARALLEL : k === 'maxSteps' ? MAX_STEPS : MAX_FIX_ROUNDS
+      out[k] = Math.min(cap, Math.floor(r[k] as number))
+    }
   }
   if (typeof r.autoFallback === 'boolean') out.autoFallback = r.autoFallback
   return out

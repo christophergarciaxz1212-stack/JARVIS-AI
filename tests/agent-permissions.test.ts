@@ -3,6 +3,7 @@ import {
   classifyTool, decide, describeRequest, isDestructiveCommand, isExternalCommand,
   DEFAULT_PERMISSION_MODE, PERMISSION_MODES,
 } from '@/lib/agents/permissions'
+import { normalizeArgs } from '@/lib/agents/tools'
 
 describe('classificação de risco das ferramentas', () => {
   it('trata leitura do projeto como leitura', () => {
@@ -128,9 +129,7 @@ describe('configuração padrão', () => {
 })
 
 describe('aliases de argumento não burlam a classificação', () => {
-  it('o alias "cmd" é classificado igual a "command"', async () => {
-    const { normalizeArgs } = await import('@/lib/agents/tools')
-
+  it('o alias "cmd" é classificado igual a "command"', () => {
     // Como o orquestrador faz: normaliza ANTES de classificar
     const comAlias = normalizeArgs('run_command', { cmd: 'npm install pacote' })
     expect(decide('run_command', comAlias, 'autonomo').allow).toBe(false)

@@ -69,7 +69,12 @@ describe('equipe completa (planejamento, paralelismo, comunicação, correção,
 
     expect(run.status).toBe('completed')
     expect(run.complexity).toBe('medium')
-    expect(run.agents.map(a => a.roleId).sort()).toEqual(['architect', 'backend', 'frontend', 'qa'])
+    // O líder é incluído automaticamente em toda equipe (orchestrator.plan).
+    expect(run.agents.map(a => a.roleId).sort()).toEqual(['architect', 'backend', 'frontend', 'leader', 'qa'])
+    // O líder também é um agente real: precisa de modelo resolvido, inclusive para herdar tarefas.
+    const leader = run.agents.find(a => a.roleId === 'leader')!
+    expect(leader.resolvedModel).toBeTruthy()
+    expect(leader.resolvedModel).not.toBe('auto')
 
     // Real parallelism: backend and frontend tasks overlapped in time
     const t1 = run.tasks.find(t => t.id === 't1')!
@@ -133,8 +138,8 @@ describe('modelos', () => {
     const ctrl = rt.startRun({ projectId: project.id, request: 'corrija o css' })
     await ctrl.done
     expect(ctrl.run.status).toBe('completed')
-    // Trivial request: only planner + one worker, not the whole team
-    expect(ctrl.run.agents.length).toBe(2)
+    // Trivial: arquiteto planejador + um operário + o líder automático, não a equipe inteira
+    expect(ctrl.run.agents.length).toBe(3)
     const events = readEvents(ctrl.run.sessionId, ctrl.run.id, 1000)
     expect(events.some(e => e.type === 'model_switched')).toBe(true)
     expect(used.filter(m => m === 'gemini|gemini-3.5-flash-lite').length).toBeGreaterThan(0)
@@ -226,26 +231,34 @@ describe('concorrência e controle', () => {
     expect(rt.locks.held().length).toBe(0)
   })
 
-  it('interromper um agente devolve a tarefa à fila e reiniciar retoma', async () => {
+  it('interromper um agente retransfere a tarefa e a equipe conclui', async () => {
     const dir = tempProject()
     const project = createProject('Interromper', dir)
-    let calls = 0
+    let interrompido = false
     const complete: CompleteFn = async (model, messages, signal) => {
       const me = whoAmI(messages)
       if (me.kind === 'planner') return completion(plan('trivial', [{ id: 'a', title: 'w', description: 'x', role: 'fullstack', dependsOn: [], files: ['w.txt'] }]), model)
       if (me.kind === 'report') return completion('ok', model)
-      calls++
-      if (calls === 1) {
+      // whoAmI devolve o nome do papel (roles.ts), não o id. Só a primeira chamada
+      // do fullstack espera o abort; o colega que herdar a tarefa trabalha normal.
+      if (me.role === 'Engenheiro Full-stack' && !interrompido) {
+        interrompido = true
         await new Promise((_, reject) => signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))))
       }
       return completion(me.step === 0 ? act('write_file', { path: 'w.txt', content: 'ok' }) : act('finish', { summary: 'ok' }), model)
     }
     const rt = runtime(complete)
     const ctrl = rt.startRun({ projectId: project.id, request: 'x' })
-    await until(() => calls === 1)
+    await until(() => interrompido)
+    const tarefa = ctrl.run.tasks.find(t => t.roleId === 'fullstack')!
     ctrl.stopAgent('fullstack')
-    await until(() => ctrl.run.tasks[0].status === 'pending')
     expect(ctrl.run.agents.find(a => a.id === 'fullstack')!.status).toBe('paused')
+    // Novo comportamento: a tarefa volta à fila e um colega ocioso a assume.
+    // Não exigir status 'running': o herdeiro pode concluir em <10 ms (intervalo do until).
+    await until(() => tarefa.agentId !== 'fullstack')
+    const eventos = readEvents(ctrl.run.sessionId, ctrl.run.id, 1000)
+    expect(eventos.some(e => e.type === 'task_interrupted')).toBe(true)
+    expect(eventos.some(e => e.type === 'task_reassigned')).toBe(true)
     ctrl.restartAgent('fullstack')
     await ctrl.done
     expect(ctrl.run.status).toBe('completed')

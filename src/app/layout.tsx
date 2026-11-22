@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import '../styles/tokens.css'
+import '../styles/components.css'
 import './operations.css'
 import './motion.css'
 import { Toaster } from 'sonner'

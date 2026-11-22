@@ -9,6 +9,7 @@ interface Preset { id: string; name: string; baseUrl: string; style: Style; keyU
 interface Custom { id: string; name: string; baseUrl: string; style: Style; manualModels: string[]; freeOnly: boolean; hasKey: boolean; keyHint: string }
 interface Found { id: string; name?: string; contextWindow?: number; paid?: boolean }
 type Result = { ok: boolean; message: string }
+interface ConnectReply { provider: Custom; models: Found[]; test: { ok: boolean; model?: string; latencyMs?: number; error?: string }; detected: { baseUrl: string; style: Style; auth: string } }
 
 const EMPTY = { id: '', name: '', baseUrl: '', style: 'openai' as Style, apiKey: '', manual: '', freeOnly: true }
 
@@ -33,6 +34,12 @@ export default function CustomProviders() {
   const [formMsg, setFormMsg] = useState<Result | null>(null)
   const [results, setResults] = useState<Record<string, Result>>({})
   const [confirmRemove, setConfirmRemove] = useState('')
+  // Conectar rápido: só endereço + chave (o resto o JARVIS descobre)
+  const [quick, setQuick] = useState({ baseUrl: '', apiKey: '', model: '' })
+  const [needModel, setNeedModel] = useState(false)
+  const [quickMsg, setQuickMsg] = useState<Result | null>(null)
+  const [modelsOf, setModelsOf] = useState<Record<string, Found[]>>({})
+  const [openModels, setOpenModels] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -95,6 +102,40 @@ export default function CustomProviders() {
     } catch { setResults(r => ({ ...r, [c.id]: { ok: false, message: 'Falha de conexão com o JARVIS' } })) } finally { setBusy('') }
   }
 
+  const connect = async () => {
+    setBusy('connect'); setQuickMsg(null)
+    try {
+      const d = await call<ConnectReply>({ action: 'connect', baseUrl: quick.baseUrl, apiKey: quick.apiKey, model: quick.model || undefined })
+      if (!d.ok) {
+        const asksModel = /informe o nome de um modelo/.test(d.error || '')
+        setNeedModel(asksModel)
+        setQuickMsg({ ok: false, message: d.error || 'Não consegui conectar' })
+        return
+      }
+      const fmt = d.detected.style === 'anthropic' ? 'Anthropic' : 'OpenAI'
+      const paid = d.models.filter(m => m.paid).length
+      const count = d.models.length ? `${d.models.length} modelo${d.models.length === 1 ? '' : 's'}${paid ? ` (${paid} marcados como pagos pela API)` : ''}` : '1 modelo (digitado)'
+      setResults(r => ({ ...r, [d.provider.id]: d.test.ok
+        ? { ok: true, message: `Conectado · formato ${fmt} · ${count} · conversa OK com ${d.test.model} em ${((d.test.latencyMs || 0) / 1000).toFixed(1).replace('.', ',')} s` }
+        : { ok: false, message: `Conectado e salvo (formato ${fmt}, ${count}), mas a conversa de teste falhou${d.test.model ? ` com ${d.test.model}` : ''}: ${d.test.error}` } }))
+      if (d.models.length) { setModelsOf(m => ({ ...m, [d.provider.id]: d.models })); setOpenModels(d.provider.id) }
+      setQuick({ baseUrl: '', apiKey: '', model: '' }); setNeedModel(false)
+      await load()
+    } catch { setQuickMsg({ ok: false, message: 'Falha de conexão com o JARVIS' }) } finally { setBusy('') }
+  }
+
+  const showModels = async (c: Custom) => {
+    if (openModels === c.id) { setOpenModels(''); return }
+    setOpenModels(c.id)
+    if (modelsOf[c.id]) return
+    setBusy(`models:${c.id}`)
+    try {
+      const d = await call<{ models: Found[] }>({ action: 'models', id: c.id })
+      setModelsOf(m => ({ ...m, [c.id]: d.ok ? d.models : [] }))
+      if (!d.ok) setResults(r => ({ ...r, [c.id]: { ok: false, message: d.error || 'A API não listou modelos' } }))
+    } finally { setBusy('') }
+  }
+
   const remove = async (id: string) => {
     setBusy(`rm:${id}`)
     try { await call({ action: 'remove', id }); setConfirmRemove(''); await load() } finally { setBusy('') }
@@ -110,14 +151,37 @@ export default function CustomProviders() {
       <div className="flex items-end justify-between gap-3">
         <div>
           <h3 className="text-xs uppercase tracking-wider text-cyan-300/70 flex items-center gap-1.5"><Boxes size={12} /> Outros provedores</h3>
-          <p className="text-[11px] text-white/30 mb-3">Qualquer API no formato OpenAI ou Anthropic — os modelos são buscados na própria API</p>
+          <p className="text-[11px] text-white/30 mb-3">Qualquer provedor, mesmo desconhecido: cole o endereço e a chave — o JARVIS descobre o formato e busca todos os modelos</p>
         </div>
         {!form && (
-          <button onClick={() => startNew()} className="mb-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-cyan-500/15 text-cyan-200 border border-cyan-500/25 hover:bg-cyan-500/25 transition-colors">
-            <Plus size={12} /> Adicionar provedor
+          <button onClick={() => startNew()} className="mb-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white/45 hover:text-white/80 hover:bg-white/5 transition-colors" title="Nome, formato e modelos escolhidos à mão">
+            <Plus size={12} /> Modo avançado
           </button>
         )}
       </div>
+
+      {!form && (
+        <div className="mb-3 p-3 rounded-xl border border-cyan-500/25 bg-cyan-500/[0.04] space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr_auto] gap-2 items-end">
+            <label className="text-[10.5px] text-white/45">Endereço da API
+              <input value={quick.baseUrl} onChange={e => setQuick({ ...quick, baseUrl: e.target.value })} onKeyDown={e => e.key === 'Enter' && quick.baseUrl.trim() && !busy && connect()} spellCheck={false} placeholder="https://api.deepseek.com" aria-label="Endereço da API" className="input-jarvis mt-1 w-full px-3 py-2 rounded-lg text-xs font-mono" />
+            </label>
+            <label className="text-[10.5px] text-white/45">Chave da API
+              <input type="password" autoComplete="off" spellCheck={false} value={quick.apiKey} onChange={e => setQuick({ ...quick, apiKey: e.target.value })} onKeyDown={e => e.key === 'Enter' && quick.baseUrl.trim() && !busy && connect()} placeholder="sk-… (vazio se não pede)" aria-label="Chave da API" className="input-jarvis mt-1 w-full px-3 py-2 rounded-lg text-xs font-mono" />
+            </label>
+            <button onClick={connect} disabled={!quick.baseUrl.trim() || !!busy} className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs bg-cyan-500/25 text-cyan-50 hover:bg-cyan-500/35 disabled:opacity-40 transition-colors">
+              {busy === 'connect' ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />} {busy === 'connect' ? 'Conectando…' : 'Conectar'}
+            </button>
+          </div>
+          {needModel && (
+            <label className="block text-[10.5px] text-white/45">Nome de um modelo dessa API (ela não lista os modelos)
+              <input value={quick.model} onChange={e => setQuick({ ...quick, model: e.target.value })} spellCheck={false} placeholder="ex.: deepseek-chat" className="input-jarvis mt-1 w-full px-3 py-2 rounded-lg text-xs font-mono" />
+            </label>
+          )}
+          {busy === 'connect' && <p className="text-[11px] text-white/45">Testando endereço, formato da API e a chave, buscando os modelos e fazendo uma conversa de teste…</p>}
+          {quickMsg && <p role="status" className="text-xs whitespace-pre-line break-words text-amber-300">! {quickMsg.message}</p>}
+        </div>
+      )}
 
       <AnimatePresence initial={false}>
         {form && (
@@ -221,7 +285,7 @@ export default function CustomProviders() {
       <div className="space-y-2">
         {!list.length && !form && (
           <div className="p-4 rounded-xl border border-dashed border-white/10 text-xs text-white/35 text-center">
-            Nenhum provedor extra. Use <b className="text-white/60">Adicionar provedor</b> para ligar Cerebras, Hugging Face, um servidor vLLM/LiteLLM ou qualquer API compatível.
+            Nenhum provedor extra. Cole acima o endereço e a chave de qualquer provedor (DeepSeek, Together, Mistral, um servidor vLLM/LiteLLM…) e clique em <b className="text-white/60">Conectar</b>.
           </div>
         )}
         {list.map(c => {
@@ -240,6 +304,9 @@ export default function CustomProviders() {
                   <p className="text-[11px] text-white/35 mt-1 font-mono truncate" title={c.baseUrl}>{c.baseUrl}</p>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button onClick={() => showModels(c)} disabled={!!busy && busy !== `models:${c.id}`} title="Todos os modelos que a API oferece" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-white/5 text-white/65 hover:bg-white/10 disabled:opacity-40">
+                    {busy === `models:${c.id}` ? <RefreshCw size={12} className="animate-spin" /> : <Boxes size={12} />} Modelos{modelsOf[c.id] ? ` (${modelsOf[c.id].length})` : ''}
+                  </button>
                   <button onClick={() => test(c)} disabled={!!busy} title="Conversa de teste com um modelo" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-white/5 text-white/65 hover:bg-white/10 disabled:opacity-40">
                     {busy === `test:${c.id}` ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />} Testar
                   </button>
@@ -255,6 +322,18 @@ export default function CustomProviders() {
                 </div>
               )}
               {r && <p className={`mt-2 text-xs break-words ${r.ok ? 'text-green-400' : 'text-red-400'}`}>{r.ok ? '✓' : '✗'} {r.message}</p>}
+              {openModels === c.id && modelsOf[c.id] && (
+                <div className="mt-2 rounded-lg border border-white/8 bg-black/25 max-h-44 overflow-y-auto p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-2">
+                  {modelsOf[c.id].length === 0 && <span className="text-[11px] text-white/40 px-1">A API não listou modelos.</span>}
+                  {modelsOf[c.id].map(m => (
+                    <span key={m.id} className={`flex items-center gap-1.5 px-1.5 py-0.5 text-[10.5px] font-mono ${m.paid && c.freeOnly ? 'opacity-40' : ''}`} title={m.paid && c.freeOnly ? "Marcado como pago pela API — oculto no seletor (mude em Editar)" : m.paid ? "A API informa preço para este modelo — confira o plano da sua chave" : m.id}>
+                      <span className="truncate text-white/75">{m.id}</span>
+                      {m.contextWindow ? <span className="text-[9px] text-white/30 flex-shrink-0">{Math.round(m.contextWindow / 1000)}k</span> : null}
+                      {m.paid && <span className="text-[9px] text-amber-300/80 flex-shrink-0">pago</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}

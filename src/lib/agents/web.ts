@@ -163,7 +163,10 @@ export function htmlToText(html: string): string {
  * a própria API do JARVIS ser lida de dentro.
  */
 export function isInternalHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  let h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  // IPv4-mapeado em IPv6 (::ffff:127.0.0.1): normaliza para IPv4 antes da checagem
+  const v4mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(h)
+  if (v4mapped) h = v4mapped[1]
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true
   if (h === '::1' || h === '0.0.0.0') return true
   // IPv6 local: ::1, fc00::/7 (único/local), fe80::/10 (link-local)
@@ -176,6 +179,7 @@ export function isInternalHost(hostname: string): boolean {
   if (a === 192 && b === 168) return true                      // privada
   if (a === 172 && b >= 16 && b <= 31) return true             // privada
   if (a === 169 && b === 254) return true                      // link-local e metadados de nuvem
+  if (a === 100 && b >= 64 && b <= 127) return true            // CGNAT (VPNs, containers)
   return false
 }
 
@@ -204,21 +208,34 @@ export async function webFetch(rawUrl: string, opts: { signal?: AbortSignal } = 
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT)
   opts.signal?.addEventListener('abort', () => ctrl.abort(), { once: true })
+  let current = url
   try {
-    const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html,text/plain,*/*' }, signal: ctrl.signal, redirect: 'follow' })
-    if (!r.ok) throw new Error(`A página respondeu HTTP ${r.status}`)
-    const type = r.headers.get('content-type') || ''
-    if (!/text\/|json|xml/.test(type)) throw new Error(`Conteúdo não é texto (${type.split(';')[0] || 'desconhecido'})`)
+    // Redirects seguidos manualmente, validando cada salto contra a lista de
+    // endereços internos: sem 302 para 127.0.0.1/metadados de nuvem (ALT-3).
+    for (let hop = 0; hop < 4; hop++) {
+      const r = await fetch(current, { headers: { 'User-Agent': UA, Accept: 'text/html,text/plain,*/*' }, signal: ctrl.signal, redirect: 'manual' })
+      if (r.status >= 300 && r.status < 400 && r.headers.get('location')) {
+        const next = new URL(r.headers.get('location')!, current)
+        try { r.body?.cancel?.() } catch {}
+        if (isInternalHost(next.hostname)) throw new Error(`Redirecionamento para endereço interno não permitido: ${next.hostname}`)
+        current = next
+        continue
+      }
+      if (!r.ok) throw new Error(`A página respondeu HTTP ${r.status}`)
+      const type = r.headers.get('content-type') || ''
+      if (!/text\/|json|xml/.test(type)) throw new Error(`Conteúdo não é texto (${type.split(';')[0] || 'desconhecido'})`)
 
-    const raw = await r.text()
-    const title = clean(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(raw)?.[1]) || url.hostname
-    const text = /html/i.test(type) ? htmlToText(raw) : raw
-    return {
-      url: r.url || url.toString(),
-      title,
-      text: text.slice(0, MAX_PAGE),
-      truncated: text.length > MAX_PAGE,
+      const raw = await r.text()
+      const title = clean(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(raw)?.[1]) || current.hostname
+      const text = /html/i.test(type) ? htmlToText(raw) : raw
+      return {
+        url: r.url || current.toString(),
+        title,
+        text: text.slice(0, MAX_PAGE),
+        truncated: text.length > MAX_PAGE,
+      }
     }
+    throw new Error('Redirecionamento demais (máx. 4)')
   } finally {
     clearTimeout(timer)
   }

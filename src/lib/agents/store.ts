@@ -76,6 +76,16 @@ export function getTeam(id: string): Team | undefined {
   return listTeams().find(t => t.id === id)
 }
 
+/** Evita nomes duplicados ao salvar/editar equipes (BAI-4): sufixa com contador. */
+function uniqueTeamName(teams: Team[], name: string, excludeId?: string): string {
+  const free = (n: string) => !teams.some(t => t.id !== excludeId && t.name === n)
+  if (free(name)) return name
+  let base = name.replace(/\s*\((?:cópia|\d+)\)$/i, '')
+  let n = 2
+  while (!free(`${base} (${n})`)) n++
+  return `${base} (${n})`
+}
+
 export function saveTeam(team: Omit<Team, 'createdAt' | 'updatedAt' | 'preset'> & { createdAt?: number }): Team {
   if (!team.name?.trim()) throw new Error('Dê um nome à equipe')
   if (!team.agents?.length) throw new Error('A equipe precisa de pelo menos um agente')
@@ -83,7 +93,7 @@ export function saveTeam(team: Omit<Team, 'createdAt' | 'updatedAt' | 'preset'> 
   const now = Date.now()
   const saved: Team = {
     id: team.id || uuidv4(),
-    name: team.name.trim(),
+    name: uniqueTeamName(f.teams, team.name.trim(), team.id),
     description: team.description || '',
     agents: team.agents.map(a => ({ ...a, id: a.id || uuidv4() })),
     createdAt: team.createdAt || now,

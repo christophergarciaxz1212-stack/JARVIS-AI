@@ -28,7 +28,7 @@ export const TOOL_DOCS = `Ferramentas disponíveis (use o nome exato em "tool"):
 - search {"query": "texto", "path": "src"} → procura texto nos arquivos do projeto
 - write_file {"path": "src/a.ts", "content": "conteúdo COMPLETO do arquivo"} → cria ou substitui um arquivo
 - edit_file {"path": "src/a.ts", "old_text": "trecho exato atual", "new_text": "novo trecho"} → troca um trecho que aparece uma única vez
-- run_command {"command": "npm test", "timeout_sec": 120} → executa um comando PowerShell na pasta do projeto
+- run_command {"command": "npm test", "timeout_sec": 120} → executa um comando PowerShell na pasta do projeto (para CRIAR ou EDITAR arquivos use write_file/edit_file: criam as pastas e gravam em UTF-8; echo/Set-Content no PowerShell 5 grava UTF-16 e falha sem a pasta)
 - send_message {"to": "backend | id-do-agente | all | user", "kind": "info|question|problem|review_request|decision", "content": "..."} → fala com outro agente, com a equipe ou com o usuário
 - delegate {"to": "frontend", "title": "...", "description": "...", "files": ["src/x.tsx"]} → cria uma subtarefa para outro agente
 - request_scope {"path": "src/outro.ts", "reason": "..."} → pede autorização para alterar arquivo fora do seu escopo
@@ -196,8 +196,11 @@ function lineDelta(before: string, after: string) {
 }
 
 /** Explicit grants (plan files, approved requests) win over the role scope and its exclusions. */
+/** Modelos de configuração sem segredo: qualquer agente pode criar (o .env de verdade continua protegido). */
+const SHARED_CONFIG = /(^|\/)\.env\.(example|sample|template)$/i
+
 export function canWrite(host: Pick<ToolHost, 'agent' | 'extraScope'>, rel: string) {
-  return matchesAny(rel, host.extraScope()) || matchesScope(rel, host.agent.scope)
+  return SHARED_CONFIG.test(rel.replace(/\\/g, '/')) || matchesAny(rel, host.extraScope()) || matchesScope(rel, host.agent.scope)
 }
 
 /** Saves the original before a run first modifies a file, so the run can be rolled back. */
@@ -241,7 +244,8 @@ async function writeGuarded(host: ToolHost, relInput: string, produce: (current:
   const abs = resolveInside(host.root, relInput)
   const rel = toRel(host.root, abs)
   if (!canWrite(host, rel)) {
-    throw new Error(`"${rel}" está fora do seu escopo (${host.agent.scope.join(', ') || 'somente leitura'}). Use request_scope para pedir autorização ou peça a outro agente via send_message.`)
+    const envHint = /(^|[\\/])\.env$/i.test(rel) ? ' O .env guarda segredos: crie ".env.example" com os nomes das variáveis (qualquer agente pode) e deixe o usuário preencher o .env.' : ''
+    throw new Error(`"${rel}" está fora do seu escopo (${host.agent.scope.join(', ') || 'somente leitura'}).${envHint} Para outro arquivo, use request_scope ou peça a outro agente via send_message.`)
   }
   const holder = host.locks.holder(abs)
   if (holder && holder.owner !== lockOwner(host.runId, host.agent.id)) {
@@ -308,7 +312,41 @@ function search(root: string, query: string, rel: string) {
   return hits.length ? hits.join('\n') : 'Nenhum resultado.'
 }
 
+/** Arquivos que um comando de terminal vai gravar (para criar a pasta antes). */
+export function commandWriteTargets(command: string): string[] {
+  const out: string[] = []
+  const unq = (s: string) => s.replace(/^["']|["']$/g, '')
+  for (const m of command.matchAll(/\b(?:Set-Content|Add-Content|Out-File)\b[^;|&]*?(?:-(?:Path|FilePath|LiteralPath)\s+)?("[^"]+"|'[^']+'|[^\s"';|&-][^\s;|&]*)/gi)) out.push(unq(m[1]))
+  // Só redirecionamento de verdade (espaço antes do ">"): "=>" de código JS dentro do comando não conta
+  for (const m of command.matchAll(/(?:^|\s)>{1,2}\s*("[^"]+"|'[^']+'|[^\s"';|&>]+)/g)) {
+    const t = unq(m[1])
+    if (!/^(nul|\$null|&\d)$/i.test(t)) out.push(t)
+  }
+  return [...new Set(out)].filter(t => t && !/[*?]/.test(t))
+}
+
+/** Exemplo do formato certo de cada ferramenta (sai junto do erro de parâmetro faltando). */
+function toolExample(tool: string) {
+  const line = TOOL_DOCS.split('\n').find(l => l.startsWith(`- ${tool} `))
+  return line ? line.slice(2).split(' → ')[0] : ''
+}
+
 export async function executeTool(host: ToolHost, action: ToolAction): Promise<{ output: string; finish?: FinishResult }> {
+  try {
+    return await executeToolInner(host, action)
+  } catch (e) {
+    const msg = (e as Error).message
+    // Parâmetro faltando: diz o que chegou e o formato certo — o modelo corrige no passo seguinte
+    if (/^Parâmetro ".+" é obrigatório$/.test(msg)) {
+      const got = Object.keys(action.args || {})
+      const ex = toolExample(action.tool)
+      throw Object.assign(new Error(`${msg} (recebi: ${got.length ? got.join(', ') : 'nenhum argumento'})${ex ? `. Formato: {"tool": "${action.tool}", "args": ${ex.slice(action.tool.length + 1)}}` : ''}`), { name: 'ToolArgsError' })
+    }
+    throw e
+  }
+}
+
+async function executeToolInner(host: ToolHost, action: ToolAction): Promise<{ output: string; finish?: FinishResult }> {
   const a = normalizeArgs(action.tool, action.args)
   switch (action.tool) {
     case 'list_dir':
@@ -351,14 +389,22 @@ export async function executeTool(host: ToolHost, action: ToolAction): Promise<{
     case 'run_command': {
       const command = str(a.command, 'command')
       const { getPrefs } = await import('../prefs')
-      if (!getPrefs().agent.allowCommands) return { output: 'Recusado: o usuário desativou comandos de terminal para os agentes (⚙️ Configurações › Agente). Trabalhe só com leitura e edição de arquivos.' }
+      if (!getPrefs().agent.allowCommands) throw Object.assign(new Error('Recusado: o usuário desativou comandos de terminal para os agentes (⚙️ Configurações › Agente). Trabalhe só com leitura e edição de arquivos.'), { name: 'ToolBlocked' })
       // Piso absoluto: formatar disco, apagar a raiz, desligar a máquina. Nem com aprovação.
-      if (!isSafeCommand(command)) return { output: 'Recusado: comando bloqueado por segurança — destrói o sistema e não é liberado nem com aprovação do usuário.' }
+      if (!isSafeCommand(command)) throw Object.assign(new Error('Recusado: comando bloqueado por segurança — destrói o sistema e não é liberado nem com aprovação do usuário.'), { name: 'ToolBlocked' })
       // O resto (apagar arquivo, reescrever histórico) o agente não faz sozinho,
       // mas o usuário pode liberar na conversa.
       const blocked = isSafeAgentCommand(command)
-      if (blocked && !host.approvedByUser) return { output: `Recusado: ${blocked}` }
+      if (blocked && !host.approvedByUser) throw Object.assign(new Error(`Recusado: ${blocked}`), { name: 'ToolBlocked' })
       const timeoutMs = Math.min(Math.max(Number(a.timeout_sec) || 120, 5), 300) * 1000
+      // Comando que grava num arquivo cuja pasta ainda não existe (Set-Content, Out-File, ">"):
+      // cria a pasta antes — só dentro do projeto e só pastas, nunca arquivos
+      for (const target of commandWriteTargets(command)) {
+        try {
+          const abs = resolveInside(host.root, target)
+          if (!fs.existsSync(path.dirname(abs))) fs.mkdirSync(path.dirname(abs), { recursive: true })
+        } catch { /* fora do projeto ou caminho estranho: o próprio comando reporta */ }
+      }
       host.log('command', `$ ${command}`, { command })
       // Output is streamed to the live view in small batches while the command runs
       let pending = ''

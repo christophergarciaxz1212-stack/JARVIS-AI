@@ -138,7 +138,11 @@ describe('image generation', () => {
     setImageFetch(f)
     const img = await generateImage('um farol na tempestade', { aspect: '16:9' })
     expect(img.provider).toMatch(/Pollinations/)
-    expect(img.fallbacks?.[0]).toMatch(/gemini: .*cota/)
+    // A cadeia automática hoje tenta FLUX (NVIDIA) antes do Gemini quando a chave existe.
+    // A garantia do teste é que o Gemini foi tentado, teve a cota explicada e não foi repetido —
+    // não a posição exata do aviso na lista de fallbacks.
+    if (providerStatus().nvidia.configured) expect(img.fallbacks?.some(f => /^nvidia: /.test(f))).toBe(true)
+    expect(img.fallbacks?.some(f => /^gemini: .*cota/.test(f))).toBe(true)
     expect(calls.some(c => /model=sana/.test(c.url) && /width=1344&height=768/.test(c.url))).toBe(true)
     expect(providerStatus().gemini.blocked).toMatch(/cota/)
     const before = calls.filter(c => c.url.includes('generativelanguage')).length

@@ -13,11 +13,28 @@ const DOCS = ['**/*.md', '**/docs/**', '**/*.txt']
 
 export const ROLES: RoleTemplate[] = [
   {
+    id: 'leader',
+    name: 'Líder da Equipe',
+    icon: '🎯',
+    color: '#e879f9',
+    modelHint: 'strong',
+    leader: true,
+    responsibilities: [
+      'Coordena a equipe e mantém o foco na missão pedida pelo usuário',
+      'Acompanha o progresso de cada agente e destaca bloqueios',
+      'Pergunta ao usuário quando uma decisão precisa de confirmação (send_message para "user")',
+      'Solicita revisão cruzada das entregas antes de declarar concluído',
+      'Consolida resultados, pendências e problemas em linguagem clara',
+    ],
+    scope: [...DOCS, '**/src/components/agents/**', '**/src/lib/agents/**'],
+  },
+  {
     id: 'architect',
     name: 'Arquiteto de Software',
     icon: '🏛️',
     color: '#00d4ff',
     modelHint: 'strong',
+    leader: true,
     responsibilities: [
       'Analisa toda a estrutura do projeto',
       'Define a arquitetura e as decisões técnicas',
@@ -220,15 +237,15 @@ function preset(id: string, name: string, description: string, roles: string[]):
 
 export const PRESET_TEAMS: Team[] = [
   preset('preset-solo', 'JARVIS Agente', 'Um agente só, direto ao ponto: lê, edita arquivos e roda comandos (modo agente do chat)', ['fullstack']),
-  preset('preset-dev', 'Equipe de Desenvolvimento', 'Equipe completa de engenharia de software', ['architect', 'backend', 'frontend', 'uiux', 'ai', 'database', 'qa', 'reviewer']),
+  preset('preset-dev', 'Equipe de Desenvolvimento', 'Equipe completa de engenharia de software', ['leader', 'architect', 'backend', 'frontend', 'uiux', 'ai', 'database', 'qa', 'reviewer']),
   preset('preset-sites', 'Equipe de Criação de Sites', 'Sites e landing pages modernos', ['architect', 'frontend', 'uiux', 'qa', 'reviewer']),
   preset('preset-apps', 'Equipe de Aplicativos', 'Aplicativos web/mobile com backend e banco', ['architect', 'backend', 'frontend', 'uiux', 'database', 'qa']),
   preset('preset-ai', 'Equipe de Engenharia de IA', 'Agentes, integrações com modelos e prompts', ['architect', 'ai', 'backend', 'qa', 'reviewer']),
   preset('preset-automation', 'Equipe de Automação', 'Scripts, automações e integrações', ['architect', 'devops', 'backend', 'qa']),
-  preset('preset-fix', 'Equipe de Análise e Correção', 'Encontrar e corrigir problemas no código', ['architect', 'fullstack', 'qa', 'reviewer']),
+  preset('preset-fix', 'Equipe de Análise e Correção', 'Encontrar e corrigir problemas no código', ['leader', 'architect', 'fullstack', 'qa', 'reviewer']),
   preset('preset-academic', 'Equipe Acadêmica', 'Hub Escolar: disciplinas, mensagens, estudos, GitHub, prazos e pesquisa', ['academic', 'messages', 'studies', 'programming', 'deadlines', 'research']),
   preset('preset-infra', 'Equipe de Infraestrutura', 'Servidores, redes, cloud, containers, segurança, bancos, monitoramento e recuperação de desastres', ['infra-lead', 'linux-admin', 'windows-admin', 'network', 'devops', 'cloud', 'infra-security', 'dba', 'sre', 'dr']),
 ]
 
 /** Roles the planner may use when the team is chosen automatically. */
-export const AUTO_TEAM_ROLES = ['architect', 'backend', 'frontend', 'uiux', 'ai', 'database', 'qa', 'reviewer', 'fullstack', 'devops', 'writer', 'infra-lead', 'linux-admin', 'windows-admin', 'network', 'cloud', 'infra-security', 'dba', 'sre', 'dr']
+export const AUTO_TEAM_ROLES = ['leader', 'architect', 'backend', 'frontend', 'uiux', 'ai', 'database', 'qa', 'reviewer', 'fullstack', 'devops', 'writer', 'infra-lead', 'linux-admin', 'windows-admin', 'network', 'cloud', 'infra-security', 'dba', 'sre', 'dr']

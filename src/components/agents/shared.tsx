@@ -211,6 +211,7 @@ export const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export const RUN_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   queued: { label: 'Na fila', cls: 'text-white/50' },
+  awaiting_plan: { label: 'Aguardando aprovação', cls: 'text-amber-300 animate-pulse' },
   analyzing: { label: 'Analisando', cls: 'text-violet-300' },
   planning: { label: 'Planejando', cls: 'text-violet-300' },
   running: { label: 'Executando', cls: 'text-cyan-300' },

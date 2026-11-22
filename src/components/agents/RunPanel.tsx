@@ -6,7 +6,7 @@ import type { AgentTask, TaskStatus } from '@/lib/agents/types'
 import { ACTIVE_RUN_STATUSES } from '@/lib/agents/types'
 import { useRunStream } from './useRunStream'
 import DiffView from './DiffView'
-import { fmtDuration, shortModel } from './api'
+import { api, fmtDuration, shortModel } from './api'
 
 /**
  * Coluna da direita durante uma execução: o plano, quem está trabalhando e o
@@ -21,7 +21,9 @@ export default function RunPanel({ runId, onChanged }: { runId: string; onChange
   }
 
   const ativo = ACTIVE_RUN_STATUSES.includes(run.status)
-  const pendentes = (run.approvals || []).filter(a => a.status === 'pending').length
+  const aprovacoesPendentes = (run.approvals || []).filter(a => a.status === 'pending')
+  const escoposPendentes = run.scopeRequests.filter(r => r.status === 'pending')
+  const pendentes = aprovacoesPendentes.length + escoposPendentes.length
   const feitas = run.tasks.filter(t => t.status === 'done').length
   const decorrido = run.startedAt ? (run.finishedAt || Date.now()) - run.startedAt : 0
 
@@ -32,7 +34,7 @@ export default function RunPanel({ runId, onChanged }: { runId: string; onChange
         <div className="flex items-center gap-2">
           {ativo
             ? <Loader2 size={12} className="animate-spin text-cyan-300 flex-shrink-0" />
-            : run.status === 'failed' || run.status === 'interrupted'
+            : ['failed', 'interrupted', 'cancelled'].includes(run.status)
               ? <XCircle size={12} className="text-red-300 flex-shrink-0" />
               : <CheckCircle2 size={12} className="text-green-400 flex-shrink-0" />}
           <span className="text-[11px] text-white/70 truncate flex-1">{run.request}</span>
@@ -45,9 +47,19 @@ export default function RunPanel({ runId, onChanged }: { runId: string; onChange
       </div>
 
       {pendentes > 0 && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] text-amber-200 bg-amber-500/10 border-b border-amber-400/20">
-          <AlertTriangle size={10} />
-          {pendentes === 1 ? '1 aprovação esperando você na conversa' : `${pendentes} aprovações esperando você na conversa`}
+        <div className="px-3 py-1.5 text-[10px] text-amber-200 bg-amber-500/10 border-b border-amber-400/20">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle size={10} />
+            <span className="flex-1">{pendentes === 1 ? '1 pedido esperando você' : `${pendentes} pedidos esperando você`}</span>
+          </div>
+          <div className="flex gap-1.5 mt-1 flex-wrap">
+            {aprovacoesPendentes.map(a => (
+              <button key={a.id} onClick={() => void api.runAction(run.id, 'approve', { approvalId: a.id })} className="px-2 py-0.5 rounded-lg bg-green-500/25 text-green-200 hover:bg-green-500/40">Aprovar</button>
+            ))}
+            {escoposPendentes.map(r => (
+              <button key={r.id} onClick={() => void api.runAction(run.id, 'scope-approve', { requestId: r.id })} className="px-2 py-0.5 rounded-lg bg-green-500/25 text-green-200 hover:bg-green-500/40">Aprovar {r.path}</button>
+            ))}
+          </div>
         </div>
       )}
 

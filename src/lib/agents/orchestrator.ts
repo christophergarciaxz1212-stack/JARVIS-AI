@@ -94,6 +94,10 @@ export class RunController {
   private pauseWaiters: Array<() => void> = []
   /** Quem está esperando uma decisão do usuário (aprovação de ferramenta ou do plano). */
   private decisionWaiters: Array<() => void> = []
+  /** Controles de abort por tarefa: cancel-task (E2) interrompe o loop do agente por ela. */
+  private taskAborts = new Map<string, AbortController>()
+  /** Esperas de resposta do usuário: leader esperando uma pergunta (E2). */
+  private userMessageWaiters = new Set<{ leaderId: string; resolve: (m: AgentMessage | null) => void }>()
   /** Esperas dos leaderAsk: id → resolve. */
   private leaderWaiters = new Map<string, (v: boolean) => void>()
   /** Decisão do usuário sobre o plano no Plan Mode. */
@@ -390,6 +394,8 @@ Formato:
 
   private async resolveModels(onlyIds?: string[]) {
     const providers = await this.deps.providers()
+    // O líder também é agente real: tem system prompt próprio e pode herdar tarefas,
+    // então precisa de modelo resolvido como qualquer outro (inclusive em resolveModels(id)).
     const targets = this.run.agents.filter(a => !a.removed && (!onlyIds || onlyIds.includes(a.id)) && (!a.resolvedModel || a.model !== 'auto' && a.resolvedModel !== a.model))
     if (!targets.length) return
     const picks = assignAutoModels(targets.map(a => ({ id: a.id, roleId: a.roleId, model: a.model })), providers)
@@ -427,10 +433,11 @@ Formato:
         this.emit('task_reassigned', `${task.id} passou de ${this.agent(from)?.name || from} para ${this.agent(to)?.name || to}`, { taskId: task.id, agentId: to })
       },
     })
-    this.heartbeat = setInterval(() => {
+      this.heartbeat = setInterval(() => {
       const now = Date.now()
       for (const a of this.run.agents) {
         if (a.removed || !['planning', 'executing', 'communicating', 'reviewing'].includes(a.status)) continue
+        a.lastActivityMs = now
         const t = a.currentTaskId ? this.task(a.currentTaskId) : undefined
         const elapsedSec = Math.round((t?.startedAt ? now - t.startedAt : a.activeMs) / 1000)
         this.emit('agent_heartbeat', `${a.name}: passo ${a.step}/${a.maxSteps} (${elapsedSec}s)`, {
@@ -1300,7 +1307,7 @@ Um arquivo só foi criado ou alterado se aparecer em "# Arquivos alterados". Se 
   async leaderAsk(agent: AgentRuntimeState, content: string, timeoutMs = 45_000): Promise<boolean> {
     const id = uuidv4()
     const question = clip(content, 500)
-    agent.pendingReply = { id, question, at: Date.now(), createdAt: Date.now() }
+    agent.pendingReply = { id, question, at: Date.now() }
     this.postMessage(agent.id, 'user', 'question', question, agent.currentTaskId)
     this.emit('leader_question', `${agent.name} pede à equipe: ${question}`, { agentId: agent.id, data: { messageId: id, question } })
     const got = await new Promise<boolean>(resolve => {

@@ -1,0 +1,82 @@
+/**
+ * Design System do JARVIS — tokens e componentes unificados.
+ *
+ * A identidade: preto e branco profundo, fundo da interface colado na tela
+ * (nenhuma borda em torno do app), acento ciano dinâmico de preferências.
+ * Todas as telas podem tirar o acento do histórico de localStorage e têm o
+ * mesmo padrão visual aplicado por causa das variáveis abaixo.
+ *
+ * Para usar o sistema de Componentes, veja src/styles/components.css.
+ */
+
+:root {
+  /* ── Cores primárias (do modo mais escuro por padrão) ──────────────────── */
+  --jv-bg: #080d17;
+  --jv-bg-deep: #05090f;
+  --jv-panel: rgba(255, 255, 255, 0.028);
+  --jv-panel-solid: #0a111e;
+  --jv-fg: #e8edf4;
+  --jv-fg-strong: #ffffff;
+  --jv-muted: #8b9bb0;
+  --jv-subtle: rgba(255, 255, 255, 0.06);
+  --jv-border: rgba(255, 255, 255, 0.085);
+  --jv-border-subtle: rgba(255, 255, 255, 0.045);
+  --jv-border-focus: rgb(var(--acc-glow) / 0.45);
+
+  /* Acento dinâmico — deriva do jv-accent setado via JS (preferencias) */
+  --jv-accent: rgb(var(--acc-glow));
+  --jv-accent-fg: rgb(var(--acc-glow) / 0.15);
+
+  /* Estados (sempre as mesmas, independentemente do acento) */
+  --jv-ok: #22c55e;
+  --jv-ok-soft: rgba(34, 197, 94, 0.14);
+  --jv-warn: #f59e0b;
+  --jv-warn-soft: rgba(245, 158, 11, 0.14);
+  --jv-fail: #ef4444;
+  --jv-fail-soft: rgba(239, 68, 68, 0.14);
+  --jv-info: #38bdf8;
+
+  /* ── Tipografia ────────────────────────────────────────────────────────── */
+  --jv-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --jv-font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  --jv-fs-xs: 10px;
+  --jv-fs-sm: 12px;
+  --jv-fs-md: 13.5px;
+  --jv-fs-lg: 16px;
+  --jv-fs-xl: 20px;
+  --jv-lh-tight: 1.3;
+  --jv-lh: 1.5;
+
+  /* ── Espaçamentos (base 4px) ──────────────────────────────────────────── */
+  --jv-s1: 4px; --jv-s2: 8px; --jv-s3: 12px; --jv-s4: 16px; --jv-s5: 20px;
+  --jv-s6: 24px; --jv-s8: 32px; --jv-s10: 40px; --jv-s12: 48px;
+
+  /* ── Raio ─────────────────────────────────────────────────────────────── */
+  --jv-r1: 4px; --jv-r2: 6px; --jv-r3: 8px; --jv-r4: 10px; --jv-r5: 12px;
+  --jv-r6: 16px; --jv-r7: 20px; --jv-r8: 24px; --jv-r-full: 999px;
+
+  /* ── Som ──────────────────────────────────────────────────────────────── */
+  --jv-trans: 160ms;
+  --jv-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Utilities (utilidades silenciosas de uso genérico) ──────────────────────
+ * As fábricas de interface (_Panel, _Card, _Row...) vivem no components.css. */
+
+.jv-stack { display: flex; flex-direction: column; gap: var(--jv-s4); }
+.jv-row { display: flex; align-items: center; gap: var(--jv-s3); }
+.jv-row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--jv-s3); }
+.jv-grow { flex: 1 1 auto; min-width: 0; }
+.jv-muted-text { color: var(--jv-muted); font-size: var(--jv-fs-sm); }
+.jv-subtle-text { color: var(--jv-fg-strong, #e8edf4); opacity: 0.55; font-size: var(--jv-fs-xs); }
+.jv-divider { border-top: 1px solid var(--jv-border); margin: var(--jv-s4) 0; }
+.jv-label { display: block; color: var(--jv-muted); font-size: var(--jv-fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--jv-s2); }
+
+/* Animações (servidoras) */
+@keyframes jv-in { from { opacity: 0; transform: translateY(2px) } to { opacity: 1; transform: translateY(0) } }
+@keyframes jv-pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.5 } }
+@keyframes jv-breathe { 0%, 100% { transform: scale(1); opacity: 1 } 50% { transform: scale(1.02); opacity: 0.85 } }
+@keyframes jv-slide-in { from { opacity: 0; transform: translateX(-6px) } to { opacity: 1; transform: translateX(0) } }
+.jv-in { animation: jv-in 160ms var(--jv-ease) both; }
+.jv-pulse { animation: jv-pulse 2.4s ease-in-out infinite; }
+.jv-breathe { animation: jv-breathe 3.2s ease-in-out infinite; }

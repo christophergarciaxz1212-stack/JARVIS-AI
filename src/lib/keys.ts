@@ -55,7 +55,10 @@ function clearFromEnvFile(envKey: string) {
   if (!fs.existsSync(ENV_PATH)) return
   const lines = fs.readFileSync(ENV_PATH, 'utf-8').split(/\r?\n/)
   const updated = lines.map(l => (l.startsWith(`${envKey}=`) ? `${envKey}=` : l))
-  fs.writeFileSync(ENV_PATH, updated.join('\n'), 'utf-8')
+  const tmp = `${ENV_PATH}.tmp-${process.pid}`
+  try { fs.writeFileSync(tmp, updated.join('\n'), 'utf-8'); fs.renameSync(tmp, ENV_PATH) } catch {
+    try { fs.rmSync(tmp, { force: true }) } catch {}
+  }
 }
 
 export function maskKey(value: string | undefined) {

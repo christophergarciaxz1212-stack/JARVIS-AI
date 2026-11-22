@@ -753,7 +753,9 @@ export async function completeOnce(
     text = JSON.stringify({
       thought: text,
       actions: msg.tool_calls.map(tc => {
-        let args: unknown = {}
+        // JSON inválido não vira {} em silêncio (era o "Parâmetro path é obrigatório"): o texto
+        // segue adiante e o parseAgentTurn tenta consertar (vírgula sobrando, aspas, cercas)
+        let args: unknown = tc.function.arguments || '{}'
         try { args = JSON.parse(tc.function.arguments || '{}') } catch {}
         return { tool: tc.function.name, args }
       }),
@@ -784,9 +786,9 @@ export function classifyModelError(err: unknown): { kind: ModelErrorKind; retryA
   if (status === 429 || /rate.?limit|quota|too many requests|resource.?exhausted|free.?usage.?limit|free.?limit/i.test(message)) return { kind: 'rate_limit', retryAfterMs, message }
   if (status === 503 || status === 502 || status === 529 || /overloaded|high demand|unavailable/i.test(message)) return { kind: 'overloaded', retryAfterMs, message }
   if (status === 404 || status === 410 || /does not exist|not found|decommissioned|no longer supported|no longer available|end of life|model_not_found/i.test(message)) return { kind: 'unavailable', message }
-  if (status === 401 || status === 403 || /invalid api key|unauthori[sz]ed|permission/i.test(message)) return { kind: 'auth', message }
+  if (status === 401 || status === 402 || status === 403 || /invalid api key|unauthori[sz]ed|permission|payment required|not part of the (free )?tier|billing|purchase (credits|tokens)/i.test(message)) return { kind: 'auth', message }
   if (/context.?length|too long|maximum context|max_tokens|token limit|longa demais/i.test(message)) return { kind: 'context', message }
-  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|fetch failed|network/i.test(message)) return { kind: 'network', message }
+  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|fetch failed|network|connection (error|reset|closed)|socket hang up|broken pipe/i.test(message)) return { kind: 'network', message }
   if (/tool choice is none|called a tool|tool_use_failed|json_validate_failed|failed to generate json/i.test(message)) return { kind: 'format', message }
   return { kind: 'other', message }
 }

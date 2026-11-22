@@ -93,12 +93,14 @@ describe('modelos por agente', () => {
     { id: '4', roleId: 'qa', model: 'auto' },
   ]
 
-  it('com poucos agentes, todos ficam no modelo mais adequado ao papel', () => {
-    // A vantagem de casar com o papel (+40) pesa mais que a penalização por
-    // reuso (-18 por uso): com 4 agentes ainda compensa usar o melhor modelo.
+  it('com poucos agentes, a equipe usa mais de um provedor gratuito', () => {
+    // Pedido do usuário: mais IAs gratuitas participando da equipe. Casar com o papel
+    // continua importando, mas repetir o mesmo provedor agora tem custo explícito.
     const escolhas = assignAutoModels(agentes, fakeProviders())
     expect(escolhas.size).toBe(4)
-    expect(new Set(escolhas.values()).size).toBe(1)
+    const providers = [...escolhas.values()].map(id => id.split('|')[0])
+    expect(new Set(providers).size).toBeGreaterThan(1)
+    expect(escolhas.get('1')).toBeTruthy()
   })
 
   it('com equipe grande, espalha para não concentrar num provedor só', () => {

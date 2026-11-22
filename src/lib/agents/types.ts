@@ -3,7 +3,7 @@
 import type { PermissionMode, ToolRisk } from './permissions'
 
 export type SessionKind = 'chat' | 'team'
-export type SessionStatus = 'active' | 'paused' | 'completed'
+export type SessionStatus = 'active' | 'paused' | 'completed' | 'failed'
 
 export interface Project {
   id: string
@@ -42,6 +42,8 @@ export interface RoleTemplate {
   modelHint: ModelHint
   /** Reviewer-type roles report issues instead of writing code. */
   reviewer?: boolean
+  /** Líder da equipe: coordena os outros agentes e verifica as entregas deles. */
+  leader?: boolean
 }
 
 export interface AgentConfig {
@@ -97,6 +99,12 @@ export interface AgentRuntimeState extends AgentConfig {
   errors: string[]
   activeMs: number
   paused: boolean
+  /** Depois disso o agente é ignorado pelo scheduler (fim de falha retryável). */
+  cooldownUntil?: number
+  /** Pergunta do líder pendente à espera de resposta do usuário (E2). */
+  pendingReply?: { id: string; question: string; at: number }
+  /** Setado quando o thought do agente começa com 'ag()'. */
+  pendingThought?: boolean
   removed?: boolean
   /** Agent was part of the team but the plan did not need it. */
   idleReason?: string
@@ -106,6 +114,8 @@ export interface AgentRuntimeState extends AgentConfig {
   lastActivityMs?: number
   /** Cor personalizada para a visualização da interface. */
   interfaceColor?: string
+  /** Progresso do agente atual (0-100); -1 quando desconhecido. */
+  progress?: number
 }
 
 export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled'
@@ -134,6 +144,8 @@ export interface AgentTask {
   startedAt?: number
   finishedAt?: number
   attempts: number
+  /** Progresso estimado da execução: 0-100; -1 = sem estimativa. */
+  progress?: number
 }
 
 export type MessageKind =
@@ -155,8 +167,12 @@ export interface AgentMessage {
   content: string
   at: number
   taskId?: string
+  /** Marcado pelo MessageBus quando o agente leu (m.read = true no markRead). */
+  read?: boolean
   /** Cor do avatar para o chat de agentes */
   agentColor?: string
+  /** Agentes que já leram esta mensagem (E2). */
+  readBy?: string[]
 }
 
 /** Dados resumidos para exibição no dashboard de multiagentes. */

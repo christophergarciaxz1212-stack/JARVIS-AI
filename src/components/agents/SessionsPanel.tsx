@@ -12,17 +12,18 @@ import { ConfirmDialog, ProjectDialog } from './shared'
 import ProjectMemoryModal from './ProjectMemoryModal'
 import type { Project, SessionMeta } from '@/lib/agents/types'
 
-type Filter = 'all' | 'active' | 'paused' | 'completed' | 'archived'
+type Filter = 'all' | 'active' | 'paused' | 'failed' | 'completed' | 'archived'
 
 const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: 'all', label: 'Todas' },
   { id: 'active', label: 'Ativas' },
   { id: 'paused', label: 'Pausadas' },
+  { id: 'failed', label: 'Falhas' },
   { id: 'completed', label: 'Concluídas' },
   { id: 'archived', label: 'Arquivadas' },
 ]
 
-const STATUS_DOT: Record<string, string> = { active: 'bg-cyan-400', paused: 'bg-orange-400', completed: 'bg-green-400' }
+const STATUS_DOT: Record<string, string> = { active: 'bg-cyan-400', paused: 'bg-orange-400', failed: 'bg-red-400', completed: 'bg-green-400' }
 
 export default function SessionsPanel({
   projectId, onProjectChange, activeSessionId, onOpen, onNewChat, onNewTeam, refreshKey, onDeleted,

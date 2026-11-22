@@ -199,8 +199,8 @@ function healthyPool(providers: LiveProvider[]) {
 }
 
 /**
- * Picks a model per agent. Agents sharing a model would share its rate limit, so each
- * extra agent on the same model costs score: work spreads across providers.
+ * Picks a model per agent. Reusing a model shares its rate limit, and reusing a provider
+ * shares its quota too — both cost score, so a normal team actually uses several free AIs.
  */
 export function assignAutoModels(
   agents: Array<{ id: string; roleId: string; model: string }>,
@@ -209,17 +209,26 @@ export function assignAutoModels(
   // Sem pool gratuita, o agente fica sem modelo e reporta o bloqueio; nunca cai para um provedor pago
   const pool = healthyPool(providers)
   const used = new Map<string, number>()
+  const providerUse = new Map<string, number>()
   const out = new Map<string, string>()
+  const claim = (id: string, provider: string) => {
+    used.set(id, (used.get(id) || 0) + 1)
+    providerUse.set(provider, (providerUse.get(provider) || 0) + 1)
+  }
   for (const a of agents) {
-    if (a.model && a.model !== 'auto') { out.set(a.id, a.model); used.set(a.model, (used.get(a.model) || 0) + 1); continue }
+    if (a.model && a.model !== 'auto') {
+      out.set(a.id, a.model)
+      claim(a.model, a.model.split('|')[0])
+      continue
+    }
     const hint = getRole(a.roleId).modelHint
     let best: AIModel | undefined
     let bestScore = -Infinity
     for (const m of pool) {
-      const s = score(m, hint) - (used.get(m.id) || 0) * 18
+      const s = score(m, hint) - (used.get(m.id) || 0) * 18 - (providerUse.get(m.provider) || 0) * 30
       if (s > bestScore) { best = m; bestScore = s }
     }
-    if (best) { out.set(a.id, best.id); used.set(best.id, (used.get(best.id) || 0) + 1) }
+    if (best) { out.set(a.id, best.id); claim(best.id, best.provider) }
   }
   return out
 }

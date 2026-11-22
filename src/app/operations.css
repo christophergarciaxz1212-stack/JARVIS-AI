@@ -621,7 +621,9 @@
 
 /* ── Feedback de foco ──────────────────────────────────────────────────── */
 
-*:focus-visible {
-  outline: 1px rgb(var(--acc-glow));
+/* Regra canônica em globals.css:712 — aqui só reforço a mesma forma válida.
+   `outline: 1px rgb(var(--acc-glow))` era inválido e podia anular o anel de foco. */
+:where(button, a, input, textarea, select, [role="button"]):focus-visible {
+  outline: 2px solid rgb(var(--acc-glow) / .7);
   outline-offset: 2px;
 }

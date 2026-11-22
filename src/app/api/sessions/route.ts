@@ -24,7 +24,7 @@ function toMeta(s: SessionRow): SessionMeta {
   }
 }
 
-const STATUSES: SessionStatus[] = ['active', 'paused', 'completed']
+const STATUSES: SessionStatus[] = ['active', 'paused', 'completed', 'failed']
 
 export async function GET(req: NextRequest) {
   const sp = new URL(req.url).searchParams

@@ -84,6 +84,14 @@ describe('model error classification', () => {
     expect(classifyModelError(new Error('[503 ] This model is currently experiencing high demand')).kind).toBe('overloaded')
     expect(classifyModelError(Object.assign(new Error('The model x does not exist'), { status: 404 })).kind).toBe('unavailable')
   })
+
+  it('trata plano/pagamento e conexão como externos, não como falha do modelo', () => {
+    // Medido na auditoria real: 402 "not part of the free tier" e "Connection error."
+    // apareciam como kind=other e viravam capacidade false na auditoria.
+    const plano = classifyModelError(new Error('Compatível com Anthropic: erro 402. Hy4 is not part of the free tier.'))
+    expect(plano.kind).toBe('auth')
+    expect(classifyModelError(new Error('Connection error.')).kind).toBe('network')
+  })
 })
 
 describe('FileLockManager', () => {

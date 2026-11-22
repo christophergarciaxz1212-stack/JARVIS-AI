@@ -169,15 +169,25 @@ class TerminalSession {
       this.push('aviso', 'Nada para interromper: nenhum programa externo rodando. Se o próprio shell está ocupado, feche a sessão.')
       return 0
     }
-    for (const filho of filhos) killTree(filho)
-    this.push('aviso', `^C — ${filhos.length} processo(s) encerrado(s)`)
+    let falhou = 0
+    for (const filho of filhos) if (!(await killTree(filho))) falhou++
+    this.push('aviso', falhou === filhos.length
+      ? `^C — não foi possível encerrar nenhum processo externo`
+      : `^C — ${filhos.length - falhou} processo(s) encerrado(s)${falhou ? `; ${falhou} inválido(s)` : ''}`)
+    // killTree não esperava o taskkill terminar: espera até os filhos sumirem (pausas de
+    // 100 ms; sob carga, o kill demora alguns segundos) — com limite, a sessão não trava.
+    const limite = Date.now() + 5_000
+    while (Date.now() < limite) {
+      if (!(await childrenOf(pid)).length) break
+      await new Promise(r => setTimeout(r, 100))
+    }
     return filhos.length
   }
 
   close() {
     const pid = this.proc?.pid
     try { this.proc?.stdin.end() } catch { /* já fechado */ }
-    if (pid) killTree(pid)
+    if (pid) void killTree(pid)
     this.proc = null
     this.listeners.clear()
   }

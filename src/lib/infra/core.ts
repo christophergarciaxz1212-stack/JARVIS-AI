@@ -1,7 +1,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { runCommand, isSafeCommand } from '../shell'
+import { runCommand, isSafeAgentCommand, isSafeCommand } from '../shell'
 import { redact } from '../redact'
 import { dataDir } from '../agents/fsutil'
 import { audit, installProcessErrorHooks, log } from './log'
@@ -186,6 +186,10 @@ export function requestDockerAction(container: string, action: DockerAction, act
 }
 
 export function requestLocalExec(command: string, actor: string): InfraApproval {
+  // Fraco antes: usava o filtro leve de terminal (SEV-4). Agora usa o mesmo
+  // critério estrito do terminal de agentes: destrutivo é bloqueado.
+  const blocked = isSafeAgentCommand(command)
+  if (blocked) throw new Error(`Comando bloqueado por segurança: ${blocked}`)
   const risk = classifyCommand(command)
   return requestApproval({ actor, kind: 'local-exec', title: 'Comando no computador', command, risk: risk.level, reasons: risk.reasons, payload: {} })
 }
@@ -212,7 +216,8 @@ export async function approveAndRun(id: string): Promise<InfraApproval> {
     } else if (a.kind === 'docker') {
       output = await dockerAction(String(a.payload.container), a.payload.action as DockerAction)
     } else if (a.kind === 'local-exec') {
-      if (!isSafeCommand(a.command)) throw new Error('Comando bloqueado pela política de segurança do JARVIS')
+      const blockedExec = isSafeAgentCommand(a.command)
+      if (blockedExec) throw new Error(`Comando bloqueado pela política de segurança do JARVIS: ${blockedExec}`)
       const r = await runCommand(a.command, os.homedir(), { timeoutMs: 600_000 })
       output = redact(`exit ${r.exitCode}\n${r.stdout}${r.stderr ? `\n[stderr]\n${r.stderr}` : ''}`).slice(-6000)
       if (r.exitCode !== 0) throw new Error(output)

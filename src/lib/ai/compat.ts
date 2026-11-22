@@ -13,7 +13,7 @@
 
 export type Quirk =
   | 'no_stream_options' | 'no_reasoning_effort' | 'no_response_format' | 'no_tools' | 'no_usage'
-  | 'no_system_role' | 'no_stream' | `drop:${string}`
+  | 'no_system_role' | 'no_stream' | `drop:${string}` | `max:${number}`
 
 const learned = new Map<string, Set<Quirk>>()
 
@@ -47,6 +47,12 @@ export function adaptBody(body: Record<string, unknown>, quirks: Set<Quirk>): Re
   if (quirks.has('no_tools')) { delete out.tools; delete out.tool_choice; delete out.parallel_tool_calls }
   if (quirks.has('no_stream')) { out.stream = false; delete out.stream_options }
   for (const q of quirks) if (q.startsWith('drop:')) delete out[q.slice(5)]
+  // Teto de saída aprendido com a recusa do servidor ("max_tokens must be <= 4096")
+  for (const q of quirks) {
+    if (!q.startsWith('max:')) continue
+    const cap = Number(q.slice(4))
+    for (const f of ['max_tokens', 'max_completion_tokens'] as const) if (typeof out[f] === 'number' && (out[f] as number) > cap) out[f] = cap
+  }
   if (quirks.has('no_system_role') && Array.isArray(out.messages)) out.messages = mergeSystemIntoUser(out.messages as Msg[])
   return out
 }
@@ -81,6 +87,19 @@ export function detectQuirk(err: unknown, body: Record<string, unknown>, quirks:
     if (quirk === 'no_usage' && !('usage' in body)) continue
     if (quirk === 'no_system_role' && !(Array.isArray(body.messages) && (body.messages as Msg[]).some(m => m.role === 'system'))) continue
     return quirk
+  }
+
+  // Limite de saída menor que o pedido: "`max_tokens` must be less than or equal to `4096`",
+  // "max_tokens is too large: 32768. This model supports at most 8192 completion tokens"
+  const asked = Number(body.max_tokens ?? body.max_completion_tokens ?? 0)
+  if (asked && /max_(completion_)?tokens|max(imum)? (output|completion|new) tokens|completion tokens/i.test(message)) {
+    const nums = [...message.matchAll(/(?:less than or equal to|<=|at most|up to|maximum(?: value)?(?: for [`'"]?max_tokens[`'"]?)? is|cannot exceed|must not exceed|supports)\s*[`'"]?(\d{3,7})/gi)].map(m => Number(m[1])).filter(n => n >= 256 && n < asked)
+    if (nums.length) {
+      const cap = Math.min(...nums)
+      if (!quirks.has(`max:${cap}`)) return `max:${cap}`
+    }
+    const field = 'max_completion_tokens' in body && !('max_tokens' in body) ? 'max_completion_tokens' : 'max_tokens'
+    if (!quirks.has(`drop:${field}`)) return `drop:${field}`
   }
 
   // Campo nomeado pelo servidor: "Unrecognized request argument supplied: foo", "unknown field `foo`",

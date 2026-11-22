@@ -338,10 +338,11 @@ async function produce(id: string) {
 
     const cenas: CompositionScene[] = plan.scenes.map((s, i) => {
       const a = job.assets![i]
-      const buf = fs.readFileSync(path.join(dir, a.file))
-      const tipo = /\.png$/.test(a.file) ? 'image/png' : /\.webp$/.test(a.file) ? 'image/webp' : 'image/jpeg'
+      // Referência pelo arquivo: a composição abre como página file:// no mesmo
+      // diretório das cenas, então o nome relativo resolve por si. Devolver base64
+      // de todas as cenas para a página custava memória quadrática em vídeos longos.
       return {
-        image: `data:${tipo};base64,${buf.toString('base64')}`,
+        image: a.file,
         camera: s.camera,
         transition: s.transition,
         onScreen: s.onScreen,

@@ -48,13 +48,13 @@ export function summarize(modules: Array<{ status: ModuleStatus }>): Record<Modu
   return out
 }
 
-type Probe = () => Promise<Omit<ModuleDiagnostic, 'checkedAt'>>
+type Probe = (ctx: { base?: string }) => Promise<Omit<ModuleDiagnostic, 'checkedAt'>>
 
 const BASE = () => process.env.JARVIS_BASE_URL || 'http://127.0.0.1:3001'
 
-async function httpProbe(pathname: string): Promise<{ ok: boolean; detail: string }> {
+async function httpProbe(pathname: string, base = BASE()): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetch(BASE() + pathname, { signal: AbortSignal.timeout(2_000) })
+    const res = await fetch(base.replace(/\/$/, '') + pathname, { signal: AbortSignal.timeout(2_000) })
     const text = await res.text()
     return { ok: res.ok, detail: `HTTP ${res.status} · ${text.length} bytes` }
   } catch (error) {
@@ -69,8 +69,8 @@ const PROBES: Probe[] = [
     return { id: 'runtime', name: 'Runtime Node.js', category: 'nucleo', status: 'ok',
       evidence: version, detail: 'Runtime do servidor do JARVIS', checkedAt: 0 }
   },
-  async () => {
-    const r = await httpProbe('/api/models')
+  async (ctx) => {
+    const r = await httpProbe('/api/models', ctx.base)
     return { id: 'catalogo', name: 'Catálogo de modelos', category: 'ia', status: r.ok ? 'ok' : 'attention',
       evidence: r.detail, action: r.ok ? undefined : 'Inicie o JARVIS para carregar o catálogo',
       detail: 'GET /api/models — modelos gratuitos disponíveis', checkedAt: 0,
@@ -84,19 +84,19 @@ const PROBES: Probe[] = [
       action: results.length ? undefined : 'Rode a verificação na tela de diagnóstico',
       detail: 'Resultados reais medidos nesta máquina', checkedAt: 0 }
   },
-  async () => {
-    const r = await httpProbe('/api/agents/health')
+  async (ctx) => {
+    const r = await httpProbe('/api/agents/health', ctx.base)
     return { id: 'saude-agentes', name: 'Saúde dos agentes', category: 'agentes', status: r.ok ? 'ok' : 'attention',
       evidence: r.detail, action: r.ok ? undefined : 'Inicie o JARVIS para verificar os agentes',
       detail: 'GET /api/agents/health', checkedAt: 0, external: !r.ok }
   },
-  async () => {
-    const r = await httpProbe('/api/providers')
+  async (ctx) => {
+    const r = await httpProbe('/api/providers', ctx.base)
     return { id: 'provedores', name: 'Provedores conectados', category: 'ia', status: r.ok ? 'ok' : 'attention',
       evidence: r.detail, detail: 'GET /api/providers — somente provedores gratuitos', checkedAt: 0, external: !r.ok }
   },
-  async () => {
-    const r = await httpProbe('/api/whatsapp/health')
+  async (ctx) => {
+    const r = await httpProbe('/api/whatsapp/health', ctx.base)
     return { id: 'whatsapp', name: 'WhatsApp Center', category: 'integracoes', status: r.ok ? 'ok' : 'attention',
       evidence: r.detail, detail: 'GET /api/whatsapp/health', checkedAt: 0, external: !r.ok }
   },
@@ -125,9 +125,9 @@ const PROBES: Probe[] = [
 ]
 
 /** Executa todas as sondas; uma sonda que lança nunca derruba o relatório inteiro. */
-export async function collectModuleStatus(opts: { now?: number } = {}): Promise<DiagnosticReport> {
+export async function collectModuleStatus(opts: { now?: number; base?: string } = {}): Promise<DiagnosticReport> {
   const now = opts.now ?? Date.now()
-  const results = await Promise.allSettled(PROBES.map(p => p()))
+  const results = await Promise.allSettled(PROBES.map(p => p({ base: opts.base })))
   const modules: ModuleDiagnostic[] = results.map((r, i) =>
     r.status === 'fulfilled'
       ? { ...r.value, checkedAt: now }

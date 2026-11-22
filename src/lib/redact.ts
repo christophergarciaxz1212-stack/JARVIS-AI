@@ -6,7 +6,7 @@ export function redact(text: string): string {
   if (!text) return text
   let out = String(text)
   for (const [name, value] of Object.entries(process.env)) {
-    if (!value || value.length < 8 || !SECRET_NAME.test(name)) continue
+    if (!value || value.length < 4 || !SECRET_NAME.test(name)) continue
     out = out.split(value).join(`***${name}***`)
   }
   return out

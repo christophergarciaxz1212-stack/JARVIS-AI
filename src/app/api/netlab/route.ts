@@ -15,7 +15,7 @@ const fileName = (s: string) => s.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'top
 export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams
   const action = q.get('action') || 'get'
-  if (action === 'list') return Response.json({ topologies: listTopologies() })
+  if (action === 'list') return Response.json({ topologies: await listTopologies() })
   const t = getTopology(q.get('id') || '')
   if (!t) return fail('Topologia não encontrada', 404)
   const download = q.get('download') === '1'

@@ -92,13 +92,28 @@ app.on('child-process-gone', (_e, details) => {
   app.exit(0)
 })
 
-// Single-instance native lock removed: requestSingleInstanceLock() crashes the browser process
-// with 0xC0000005 (0x0ae21ddb) inside process_singleton_win.cc on this machine (WER dumps).
-// A second instance simply fails to bind port 3001 and still renders the served UI.
-// To re-enable on healthy machines, restore the requestSingleInstanceLock() guard here.
-app.on('second-instance', () => {
-  if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus() }
-})
+// Instância única por arquivo: o lock do Electron crasheava o process_singleton desta
+// máquina (WER dumps), então o lock é um arquivo no DATA_DIR: PID vivo = segunda
+// instância foca a janela da existente e sai; PID morto ou sem lock = libera.
+const APP_LOCK = path.join(DATA_DIR, 'app.lock')
+function readPidFile(file) {
+  try { const n = Number(fs.readFileSync(file, 'utf-8').trim()); return Number.isFinite(n) && n > 0 ? n : NaN } catch { return NaN }
+}
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true } catch (e) { return e && e.code === 'EPERM' }
+}
+let appLockAcquired = false
+{
+  const cur = readPidFile(APP_LOCK)
+  if (Number.isFinite(cur) && cur !== process.pid && pidAlive(cur)) {
+    logMain('warn', 'Segunda instância detectada: focando a janela da existente e saindo.')
+  } else {
+    try { fs.writeFileSync(APP_LOCK, String(process.pid), 'utf-8') } catch {}
+    process.on('exit', () => { try { fs.rmSync(APP_LOCK, { force: true }) } catch {} })
+    appLockAcquired = true
+  }
+}
+if (!appLockAcquired) app.exit(0)
 
 let mainWindow
 let splash
@@ -275,8 +290,10 @@ function stopServer() {
 function waitForServer(callback, retries = 0) {
   if (retries > 800) { callback(new Error('timeout')); return }
   const req = http.get(APP_URL, res => { res.resume(); callback(null) })
+  // Timeout com handler: sem isso, o timeout não virava 'error' e o retry travava
+  // para sempre — o splash ficava preso (ALT-5).
+  req.setTimeout(6000, () => req.destroy(new Error('timeout-req')))
   req.on('error', () => setTimeout(() => waitForServer(callback, retries + 1), 150))
-  req.setTimeout(60000)
   req.end()
 }
 
@@ -587,7 +604,14 @@ app.whenReady().then(async () => {
   splash.webContents.once('did-finish-load', () => splashStatus('Iniciando núcleo neural', 30))
 
   waitForServer((err) => {
-    if (err) { splashStatus('Falha ao iniciar o servidor', -1); return }
+    if (err) {
+      splashStatus('Falha ao iniciar o servidor', -1)
+      logMain('error', `Servidor não respondeu: ${err.message}`)
+      dialog.showErrorBox('JARVIS', 'O servidor interno não respondeu em 2 minutos. Feche e abra o JARVIS; se persistir, abra data/logs/electron-main.log.')
+      try { splash?.destroy() } catch {}
+      app.exit(1)
+      return
+    }
     splashStatus('Carregando interface', 70)
     mainWindow.loadURL(APP_URL)
     mainWindow.once('ready-to-show', () => {

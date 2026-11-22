@@ -6,6 +6,7 @@ import {
 import { PROVIDER_APIS, getProviderModels, SEP } from '@/lib/ai/providers'
 import { completeOnce } from '@/lib/ai/client'
 import { recordModelTest } from '@/lib/ai/modelTests'
+import { connectProvider } from '@/lib/ai/connectProvider'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,6 +35,26 @@ export async function POST(req: NextRequest) {
   try { body = await req.json() } catch { return fail('Corpo inválido (JSON esperado)') }
   try {
     switch (String(body.action || '')) {
+      // Só URL + chave: descobre formato, endereço, cabeçalho e TODOS os modelos, salva e testa
+      case 'connect': {
+        const r = await connectProvider({
+          baseUrl: String(body.baseUrl || ''),
+          apiKey: typeof body.apiKey === 'string' ? body.apiKey : '',
+          name: typeof body.name === 'string' ? body.name : undefined,
+          model: typeof body.model === 'string' ? body.model : undefined,
+          signal: req.signal,
+        })
+        return Response.json({ ok: true, provider: publicView(r.provider), models: r.models, test: r.test, detected: r.detected })
+      }
+      // Todos os modelos que a API de um provedor salvo oferece agora
+      case 'models': {
+        const id = String(body.id || '')
+        ensureCustomProviders()
+        const cp = readCustomProviders().find(p => p.id === id)
+        if (!cp) return fail('Provedor não encontrado', 404)
+        const r = await discoverModels(cp.baseUrl, cp.style, process.env[envKeyFor(id)] || '', cp.auth)
+        return Response.json({ ok: true, models: r.models })
+      }
       // Lista os modelos de um endereço antes de salvar (a chave digitada não é guardada aqui)
       case 'discover': {
         const style: ApiStyle = body.style === 'anthropic' ? 'anthropic' : 'openai'

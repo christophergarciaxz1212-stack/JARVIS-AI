@@ -56,9 +56,9 @@ const formatSize = (size: number) => {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
-async function apiGet<T extends { error?: string }>(url: string): Promise<T> {
+async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url)
-  const data = (await res.json()) as T
+  const data = (await res.json()) as T & { error?: string }
   if (data && data.error) throw new Error(String(data.error))
   return data
 }
