@@ -9,7 +9,7 @@ import { listTerminals } from '../terminal'
 import { listBackups } from './backup'
 import { log, readLogs, type LogEntry } from './log'
 import { getSystemHealth, type InfraStatus } from './reliability'
-import { runSelfCheck } from './selfcheck'
+import { selfReport } from './core'
 import { scanData } from './selfcheck'
 
 export type DiagnosticsLevel = 'ok' | 'warn' | 'fail'
@@ -135,7 +135,7 @@ export async function gatherDiagnostics(): Promise<Diagnostics> {
   const terminal = listTerminals()
   const backups = listBackups()
   const infra = getSystemHealth()
-  const selfcheck = runSelfCheck({ watchdogRunning: false, openIncidents: 0, backupEveryHours: 0 })
+  const selfcheck = selfReport()
 
   const logs: LogDiag = (() => {
     const entries = readLogs({ level: undefined, limit: 200 })
